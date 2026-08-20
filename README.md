@@ -44,10 +44,12 @@ Defaults:
 | `--xml-dir` | `transcribed_xml` |
 | `--out` | `reports` |
 | `--corrected-dir` | `corrected_xml` |
+| `--delete-all-extras` | off |
 
 ```bash
 python align_report.py --no-xml                  # HTML/JSON report only
 python align_report.py --xml-dir path/to/xml     # more Transkribus pages
+python align_report.py --delete-all-extras       # also delete uncertain extras
 ```
 
 Drop new PAGE XML files into `transcribed_xml/` named so the folio matches the Word header (`93v.jpg` ↔ `[93v]`). Re-run the command.
@@ -89,12 +91,13 @@ Typical extras are ornament OCR and margin folio numbers; a split manuscript lin
 **`corrected_xml/`** — Transkribus-style PAGE XML (one line, `standalone="yes"`):
 
 - `MATCH` / `OCR`: replace `Unicode` with the GT line; keep coordinates and baseline
-- `EXTRA`: delete the line
+- `EXTRA`: delete lines independently flagged as noise; preserve uncertain extras
 - `MERGE`: keep the wider box, union polygon + baseline, write the GT line
 - reindex `readingOrder` on remaining lines
 - leave the region-level `Unicode` empty, as Transkribus does
 
 `MISSING` lines are skipped: there is no box to attach them to.
+Use `--delete-all-extras` to restore aggressive deletion of every `EXTRA` line.
 
 ## Requirements
 

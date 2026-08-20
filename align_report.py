@@ -16,8 +16,6 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from docx import Document
-
 PAGE_NS_URI = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
 PAGE_NS = {"p": PAGE_NS_URI}
 FOLIO_RE = re.compile(r"^\[(\d+[rv])\]$")
@@ -25,7 +23,8 @@ READING_ORDER_RE = re.compile(r"readingOrder\s*\{index:\s*\d+;\}")
 
 TASHKEEL_RE = re.compile(r"[\u064B-\u065F\u0670]")
 ALEF_RE = re.compile(r"[أإآٱ]")
-PUNCT_RE = re.compile(r"[⦿✢✣.:،؛!?()«»\"'،\-–—_/\\]+")
+# These witness-specific marks are transcription content, not punctuation: ⦿ ✢ ✣ :
+PUNCT_RE = re.compile(r"[.،؛؟!?()«»\"'\-–—_/\\]+")
 WHITESPACE_RE = re.compile(r"\s+")
 ARABIC_LETTER_RE = re.compile(r"[\u0621-\u064A\u0671-\u06D3]")
 DIGIT_RE = re.compile(r"[0-9٠-٩]")
@@ -244,6 +243,8 @@ def parse_page_xml(path: Path) -> tuple[str, str | None, list[XmlLine]]:
 
 
 def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
+    from docx import Document
+
     document = Document(str(path))
     pages: dict[str, list[GtLine]] = {}
     current: str | None = None
@@ -611,8 +612,14 @@ def union_line_geometry(primary: ET.Element, members: list[ET.Element]) -> None:
         set_points(primary, "Baseline", sorted(set(baseline), key=lambda p: (p[0], p[1])))
 
 
-def rewrite_page_xml(src: Path, alignments: list[Alignment], dest: Path) -> dict[str, int]:
-    """Drop EXTRA lines, merge split-line geometry, replace Unicode with GT."""
+def rewrite_page_xml(
+    src: Path,
+    alignments: list[Alignment],
+    dest: Path,
+    *,
+    delete_all_extras: bool = False,
+) -> dict[str, int]:
+    """Drop confirmed-noise extras, merge geometry, and replace Unicode with GT."""
     tree = ET.parse(src)
     root = tree.getroot()
     page = root.find("p:Page", PAGE_NS)
@@ -623,10 +630,17 @@ def rewrite_page_xml(src: Path, alignments: list[Alignment], dest: Path) -> dict
     parent = {child: node for node in root.iter() for child in node}
     delete_ids: set[str] = set()
     missing = 0
+    preserved_extras = 0
 
     for item in alignments:
         if item.status == "EXTRA":
-            delete_ids.update(item.xml_ids)
+            # A low-similarity real line can be represented by the aligner as an
+            # EXTRA next to a MISSING line. Only automatically delete lines that
+            # the geometry/text heuristic independently identified as noise.
+            if delete_all_extras or "noise" in item.flags:
+                delete_ids.update(item.xml_ids)
+            else:
+                preserved_extras += 1
             continue
         if item.status == "MISSING" or not item.gt_text or not item.xml_ids:
             if item.status == "MISSING":
@@ -649,16 +663,24 @@ def rewrite_page_xml(src: Path, alignments: list[Alignment], dest: Path) -> dict
         if elem is not None and elem in parent:
             parent[elem].remove(elem)
 
-    stats = {"kept": 0, "deleted": len(delete_ids), "missing_skipped": missing}
+    stats = {
+        "kept": 0,
+        "deleted": len(delete_ids),
+        "missing_skipped": missing,
+        "preserved_extras": preserved_extras,
+    }
     line_index = 0
-    for region in page.findall("p:TextRegion", PAGE_NS):
+    for region_idx, region in enumerate(page.findall("p:TextRegion", PAGE_NS)):
         for idx, line in enumerate(region.findall("p:TextLine", PAGE_NS)):
             set_reading_order(line, idx)
             line_index += 1
-        # Leave region Unicode empty, as in Transkribus export.
+        # Leave region Unicode empty, as in Transkribus export. Existing region
+        # text would otherwise become stale after line edits and deletions.
+        for region_unicode in region.findall("p:TextEquiv/p:Unicode", PAGE_NS):
+            region_unicode.text = None
         # Only refresh readingOrder if the region already had it.
         if region.get("custom") and READING_ORDER_RE.search(region.get("custom") or ""):
-            set_reading_order(region, 0)
+            set_reading_order(region, region_idx)
     stats["kept"] = line_index
 
     last_change = root.find("p:Metadata/p:LastChange", PAGE_NS)
@@ -682,17 +704,26 @@ def serialize_transkribus_xml(root: ET.Element) -> str:
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + body
 
 
-def write_corrected_xml(pages: list[PageResult], out_dir: Path) -> None:
+def write_corrected_xml(
+    pages: list[PageResult], out_dir: Path, *, delete_all_extras: bool = False
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for page in pages:
         if not page.xml_path:
             continue
         src = Path(page.xml_path)
         dest = out_dir / src.name
-        stats = rewrite_page_xml(src, page.alignments, dest)
+        stats = rewrite_page_xml(
+            src, page.alignments, dest, delete_all_extras=delete_all_extras
+        )
         print(
             f"  XML {page.folio}: kept {stats['kept']}  deleted {stats['deleted']}"
             + (f"  skipped {stats['missing_skipped']} missing" if stats["missing_skipped"] else "")
+            + (
+                f"  preserved {stats['preserved_extras']} uncertain extras"
+                if stats["preserved_extras"]
+                else ""
+            )
             + f"  -> {dest}"
         )
 
@@ -977,7 +1008,14 @@ def load_xml_pages(xml_dir: Path) -> dict[str, tuple[Path, str | None, list[XmlL
     return pages
 
 
-def run(gt_path: Path, xml_dir: Path, out_dir: Path, corrected_dir: Path | None = None) -> list[PageResult]:
+def run(
+    gt_path: Path,
+    xml_dir: Path,
+    out_dir: Path,
+    corrected_dir: Path | None = None,
+    *,
+    delete_all_extras: bool = False,
+) -> list[PageResult]:
     gt_pages = parse_ground_truth(gt_path)
     xml_pages = load_xml_pages(xml_dir)
     paired = sorted(set(gt_pages) & set(xml_pages), key=folio_sort_key)
@@ -991,7 +1029,9 @@ def run(gt_path: Path, xml_dir: Path, out_dir: Path, corrected_dir: Path | None 
     print_summary(results, gt_only, xml_only)
     if corrected_dir is not None:
         print("Corrected PAGE XML:")
-        write_corrected_xml(results, corrected_dir)
+        write_corrected_xml(
+            results, corrected_dir, delete_all_extras=delete_all_extras
+        )
     return results
 
 
@@ -1009,6 +1049,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=Path("reports"))
     parser.add_argument("--corrected-dir", type=Path, default=Path("corrected_xml"))
     parser.add_argument("--no-xml", action="store_true", help="Skip writing corrected PAGE XML")
+    parser.add_argument(
+        "--delete-all-extras",
+        action="store_true",
+        help="Delete every EXTRA line, including uncertain non-noise lines",
+    )
     args = parser.parse_args(argv)
     if not args.gt.exists():
         print(f"Ground truth not found: {args.gt}", file=sys.stderr)
@@ -1017,7 +1062,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"XML directory not found: {args.xml_dir}", file=sys.stderr)
         return 1
     corrected = None if args.no_xml else args.corrected_dir
-    run(args.gt, args.xml_dir, args.out, corrected)
+    run(
+        args.gt,
+        args.xml_dir,
+        args.out,
+        corrected,
+        delete_all_extras=args.delete_all_extras,
+    )
     print(f"Wrote reports to {args.out.resolve()}")
     if corrected is not None:
         print(f"Wrote corrected XML to {corrected.resolve()}")
