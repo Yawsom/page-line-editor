@@ -6,15 +6,15 @@ It is built for medieval Arabic (and Coptic-script punctuation marks used in thi
 
 ## Layout
 
-Transcription files are **not** in the repository. Create these folders locally (they are gitignored):
+```
+ground_truth/       Word .docx (one paragraph per manuscript line, pages marked [93v])
+transcribed_xml/    Transkribus PAGE XML (model output)
+corrected_xml/      written by the tool
+reports/            written by the tool (RTL HTML + alignment.json)
+align_report.py     CLI
+```
 
-```
-Ground_Truth_Word/     Word .docx, one paragraph per manuscript line, pages marked [93v]
-Transcribed_XML/       Transkribus PAGE XML (model output)
-Corrected_XML/         written by the tool
-reports/               written by the tool (RTL HTML + alignment.json)
-align_report.py        CLI
-```
+Folder structure is in git; file contents are not. Put your own Word document and PAGE XML in `ground_truth/` and `transcribed_xml/`.
 
 Pair XML to Word by folio: `imageFilename="93v.jpg"` matches a `[93v]` paragraph in the .docx. Unpaired GT pages are listed in the report index.
 
@@ -40,17 +40,17 @@ Defaults:
 
 | Flag | Default |
 |---|---|
-| `--gt` | `Ground_Truth_Word/S155-transcription.docx` |
-| `--xml-dir` | `Transcribed_XML` |
+| `--gt` | `ground_truth/S155-transcription.docx` |
+| `--xml-dir` | `transcribed_xml` |
 | `--out` | `reports` |
-| `--corrected-dir` | `Corrected_XML` |
+| `--corrected-dir` | `corrected_xml` |
 
 ```bash
 python align_report.py --no-xml                  # HTML/JSON report only
 python align_report.py --xml-dir path/to/xml     # more Transkribus pages
 ```
 
-Drop new PAGE XML files into `Transcribed_XML/` named so the folio matches the Word header (`93v.jpg` ↔ `[93v]`). Re-run the command.
+Drop new PAGE XML files into `transcribed_xml/` named so the folio matches the Word header (`93v.jpg` ↔ `[93v]`). Re-run the command.
 
 ## What it does
 
@@ -86,7 +86,7 @@ Typical extras are ornament OCR and margin folio numbers; a split manuscript lin
 
 **`reports/alignment.json`** — the same mapping, for later tooling.
 
-**`Corrected_XML/`** — Transkribus-style PAGE XML (one line, `standalone="yes"`):
+**`corrected_xml/`** — Transkribus-style PAGE XML (one line, `standalone="yes"`):
 
 - `MATCH` / `OCR`: replace `Unicode` with the GT line; keep coordinates and baseline
 - `EXTRA`: delete the line

@@ -5,8 +5,12 @@ __pycache__/
 .DS_Store
 .python-version
 
-# Personal transcription data — keep local, never commit
-Ground_Truth_Word/
-Transcribed_XML/
-Corrected_XML/
-reports/
+# Keep folder structure; ignore personal/generated contents
+ground_truth/**
+!ground_truth/.gitkeep
+transcribed_xml/**
+!transcribed_xml/.gitkeep
+corrected_xml/**
+!corrected_xml/.gitkeep
+reports/**
+!reports/.gitkeep

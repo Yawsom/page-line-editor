@@ -1004,10 +1004,10 @@ def folio_sort_key(folio: str) -> tuple[int, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gt", type=Path, default=Path("Ground_Truth_Word/S155-transcription.docx"))
-    parser.add_argument("--xml-dir", type=Path, default=Path("Transcribed_XML"))
+    parser.add_argument("--gt", type=Path, default=Path("ground_truth/S155-transcription.docx"))
+    parser.add_argument("--xml-dir", type=Path, default=Path("transcribed_xml"))
     parser.add_argument("--out", type=Path, default=Path("reports"))
-    parser.add_argument("--corrected-dir", type=Path, default=Path("Corrected_XML"))
+    parser.add_argument("--corrected-dir", type=Path, default=Path("corrected_xml"))
     parser.add_argument("--no-xml", action="store_true", help="Skip writing corrected PAGE XML")
     args = parser.parse_args(argv)
     if not args.gt.exists():
