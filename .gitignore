@@ -14,3 +14,32 @@ corrected_xml/**
 !corrected_xml/.gitkeep
 reports/**
 !reports/.gitkeep
+
+# Manuscript/project data must never be committed. Test fixtures are generated
+# in temporary directories; the public PAGE schema is stored as .xsd.
+*.xml
+*.XML
+*.docx
+*.DOCX
+*.jpg
+*.JPG
+*.jpeg
+*.JPEG
+*.png
+*.PNG
+*.tif
+*.TIF
+*.tiff
+*.TIFF
+correction_history/
+**/correction_history/
+*.page-editor.json
+
+# Build/test artefacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/

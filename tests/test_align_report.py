@@ -5,7 +5,6 @@ from pathlib import Path
 
 import align_report as alignment
 
-
 PAGE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">
   <Metadata><LastChange>old</LastChange></Metadata>

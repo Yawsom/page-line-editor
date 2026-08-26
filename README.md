@@ -1,105 +1,122 @@
-# PAGE XML ground-truth alignment
+# PAGE Line Editor
 
-Correct Transkribus PAGE XML transcriptions against a line-by-line Word ground truth. The tool aligns physical manuscript lines (not sentences), reports OCR and segmentation errors, and writes corrected PAGE XML that keeps the original bounding boxes and baselines.
+An offline PySide6 desktop editor for PAGE 2013 XML transcription, line polygons,
+baselines, and automatic Arabic ground-truth correction.
 
-It is built for medieval Arabic (and Coptic-script punctuation marks used in this witness). Matching uses `difflib` after Arabic-only normalisation, plus geometry so a junk line or a split box does not shift the rest of the page.
+The application opens separate image and XML folders, pairs JPEG/PNG pages with
+their XML, overlays every `TextLine/Coords` polygon and `TextLine/Baseline`, and
+keeps an Arabic right-to-left transcription editor anchored beneath the selected
+line. Clicking the polygon interior, border, or baseline selects the same line.
 
-## Layout
+## Current capabilities
 
-```
-ground_truth/       Word .docx (one paragraph per manuscript line, pages marked [93v])
-transcribed_xml/    Transkribus PAGE XML (model output)
-corrected_xml/      written by the tool
-reports/            written by the tool (RTL HTML + alignment.json)
-align_report.py     CLI
-```
+- Folder browser with exact-stem, case-insensitive, and PAGE `imageFilename`
+  pairing diagnostics.
+- Zoom, pan, fit, view-only 90-degree rotation, overlay toggles, and System,
+  Light, and Dark themes.
+- Undoable transcription editing and polygon/baseline vertex drag, add, delete,
+  whole-line move, and shape replacement.
+- Geometry guards for minimum vertex counts, image bounds, self-intersections,
+  and newly introduced baselines outside their polygons.
+- Toggleable Unicode NFC normalization for manual transcription edits.
+- Current-page and cancellable folder automatic correction.
+- Automatic in-memory application of corrections. Keep confirms an applied
+  result; Reject restores its exact pre-correction text, geometry, deletion, and
+  proposal metadata. XML is not changed until explicit Save.
+- Timestamped audit runs containing the untouched original XML, JSON/HTML diff
+  reports, and a decision manifest.
+- Narrow PAGE XML mutation, offline official PAGE 2013 XSD plus semantic
+  validation, exact pre-save backup, and atomic source replacement.
 
-Folder structure is in git; file contents are not. Put your own Word document and PAGE XML in `ground_truth/` and `transcribed_xml/`.
+Manual structural split/merge is intentionally deferred. Automatic merge and
+confirmed-noise deletion remain reviewable and reversible.
 
-Pair XML to Word by folio: `imageFilename="93v.jpg"` matches a `[93v]` paragraph in the .docx. Unpaired GT pages are listed in the report index.
+## Development setup
 
-## Setup
-
-Python 3.10+ (tested on 3.14).
+Python 3.11 or newer is required. From the repository root:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m pip install ".[dev]"
+python -m page_line_editor
 ```
 
-## Usage
-
-From the project root:
+Use a normal local install as shown above. In some macOS/Python 3.14
+environments, setuptools' editable-install path file can be marked hidden and
+then skipped, so `pip install -e .` may report success while
+`page_line_editor` remains unimportable. When developing without reinstalling,
+launch directly from the checkout instead:
 
 ```bash
-python align_report.py
+PYTHONPATH=src python -m page_line_editor   # macOS/Linux
 ```
 
-Defaults:
-
-| Flag | Default |
-|---|---|
-| `--gt` | `ground_truth/S155-transcription.docx` |
-| `--xml-dir` | `transcribed_xml` |
-| `--out` | `reports` |
-| `--corrected-dir` | `corrected_xml` |
-| `--delete-all-extras` | off |
+On macOS, the launcher automatically creates a temporary, unhidden mirror of
+Qt's plugins when filesystem flags would otherwise hide the Cocoa or JPEG/PNG
+plugins. If Qt was partially installed and still reports that `cocoa` cannot be
+found, refresh the pinned Qt runtime once:
 
 ```bash
-python align_report.py --no-xml                  # HTML/JSON report only
-python align_report.py --xml-dir path/to/xml     # more Transkribus pages
-python align_report.py --delete-all-extras       # also delete uncertain extras
+python -m pip install --force-reinstall --no-deps \
+  PySide6==6.10.1 PySide6_Essentials==6.10.1 \
+  PySide6_Addons==6.10.1 shiboken6==6.10.1
 ```
 
-Drop new PAGE XML files into `transcribed_xml/` named so the folio matches the Word header (`93v.jpg` ↔ `[93v]`). Re-run the command.
+In the application, choose **Open Project** and provide:
 
-## What it does
+1. the JPEG/PNG folder;
+2. the PAGE XML folder;
+3. the optional folio-delimited ground-truth `.docx`; and
+4. an audit/history directory outside the live XML folder.
 
-**Word.** A paragraph matching `[93v]` / `[94r]` / `[1r]` starts a folio. Every other non-empty paragraph is one manuscript line. Special marks in the GT (`⦿`, `✢`, `✣`, `:`) are real text.
+Ground-truth pages use paragraphs such as `[93v]`; each following non-empty
+paragraph is one manuscript line until the next folio header.
 
-**PAGE XML.** Each `TextLine` keeps `Coords`, `Baseline`, and `Unicode`. Lines are ordered by baseline Y, not `readingOrder` (that attribute is not always 0-based).
+In **Select / Move** mode, left-drag the empty page or background to pan. Drag a
+line to move its geometry, drag its handles to edit vertices, or middle-drag
+from anywhere to pan without changing tools. Use Ctrl/Command + wheel to zoom.
 
-**Alignment.**
+The historical command-line workflow remains available during the transition:
 
-1. Flag noise (narrow + short + digits/low Arabic), e.g. a margin folio number.
-2. Merge XML fragments that share a baseline Y and whose joined text matches GT better than either fragment alone.
-3. Sequence-align remaining XML lines to GT with Needleman–Wunsch, scoring pairs with `difflib.SequenceMatcher.ratio` (`autojunk=False`).
-4. Character-level diff for the HTML report.
+```bash
+python align_report.py --help
+```
 
-Normalisation (alef forms, tashkeel, `ى`/`ي`, punctuation) is **match-only**. The report and corrected XML show the original GT spelling.
+## Safety and privacy
 
-## Status labels
+Manuscript XML, Word files, images, reports, and correction history are ignored
+globally by repository policy. Run the data guard before any commit:
 
-| Status | Meaning |
-|---|---|
-| `MATCH` | Aligned, similarity ≥ 0.95 |
-| `OCR` | Aligned 1:1, character differences |
-| `MERGE` | Two XML boxes, one GT line |
-| `SPLIT` | One XML box, two GT lines |
-| `EXTRA` | XML line with no GT (ornament, margin number) |
-| `MISSING` | GT line with no XML box (not invented) |
+```bash
+python scripts/check_no_private_data.py
+```
 
-Typical extras are ornament OCR and margin folio numbers; a split manuscript line becomes `MERGE`.
+Automatic correction always writes its audit copy before changing the in-memory
+model. Explicit Save validates candidate bytes, writes an exact timestamped
+backup, flushes a same-directory temporary file, and then uses atomic replace.
 
-## Outputs
+## Quality checks
 
-**`reports/index.html`** — per-folio counts. Open a folio page for a right-to-left side-by-side diff (red = XML-only, green = GT-only).
+```bash
+ruff check .
+mypy src/page_line_editor
+pytest
+```
 
-**`reports/alignment.json`** — the same mapping, for later tooling.
+CI covers Python 3.11 and 3.13 on Windows, macOS, and Linux. Runtime behavior is
+offline; no network request is made by the editor.
 
-**`corrected_xml/`** — Transkribus-style PAGE XML (one line, `standalone="yes"`):
+## Packaging and open-source next steps
 
-- `MATCH` / `OCR`: replace `Unicode` with the GT line; keep coordinates and baseline
-- `EXTRA`: delete lines independently flagged as noise; preserve uncertain extras
-- `MERGE`: keep the wider box, union polygon + baseline, write the GT line
-- reindex `readingOrder` on remaining lines
-- leave the region-level `Unicode` empty, as Transkribus does
+Qt documents `pyside6-deploy` as its supported cross-platform freezing path for
+Windows, macOS, and Linux. A later release should add reproducible platform jobs,
+application icons, signing/notarization, installer smoke tests, and bundled
+license notices. PySide6 is available under LGPLv3/GPLv3 or a commercial Qt
+license; the application project's own open-source license still needs an
+explicit maintainer decision before public release.
 
-`MISSING` lines are skipped: there is no box to attach them to.
-Use `--delete-all-extras` to restore aggressive deletion of every `EXTRA` line.
-
-## Requirements
-
-- `python-docx` to read the Word ground truth
-- Standard library otherwise (`xml.etree`, `difflib`)
+The validator bundles the official PRImA PAGE 2013 XSD. Strict validation reports
+vendor-only Transkribus metadata; the separate editable-core result validates a
+temporary clone with only the known `TranskribusMetadata` extension removed. The
+real XML always retains that metadata.

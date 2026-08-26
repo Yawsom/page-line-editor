@@ -1,0 +1,403 @@
+"""Main window and public integration surface for PAGE Line Editor."""
+
+from __future__ import annotations
+
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDockWidget,
+    QMainWindow,
+    QMessageBox,
+    QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
+)
+
+from .adapters import LineAdapter
+from .canvas import EditMode, PageCanvasView
+from .commands import TextEditCommand
+from .panels import ProjectOpenDialog, ProjectPaths, ReviewPanel
+from .themes import Theme, apply_theme
+
+
+class MainWindow(QMainWindow):
+    """Modern Qt Widgets shell; application services connect to its signals."""
+
+    openProjectRequested = Signal(object)
+    saveRequested = Signal()
+    pageRequested = Signal(object)
+    autoCorrectPageRequested = Signal()
+    autoCorrectBatchRequested = Signal()
+    cancelCorrectionRequested = Signal()
+    keepCorrectionRequested = Signal(str)
+    rejectCorrectionRequested = Signal(str)
+    keepPageCorrectionsRequested = Signal()
+    rejectPageCorrectionsRequested = Signal()
+    lineTextChanged = Signal(str, str)
+    lineGeometryChanged = Signal(str, object, object)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("mainWindow")
+        self.setWindowTitle("PAGE Line Editor")
+        self.resize(1440, 900)
+        self.undo_stack = QUndoStack(self)
+        self.undo_stack.setClean()
+        self.canvas = PageCanvasView(self)
+        self.canvas.set_undo_stack(self.undo_stack)
+        self.setCentralWidget(self.canvas)
+        self.page_list = QTreeWidget(self)
+        self.page_list.setObjectName("pageBrowser")
+        self.page_list.setHeaderLabels(("Page", "Pairing / status"))
+        self.page_list.setRootIsDecorated(False)
+        self.review_panel = ReviewPanel(self)
+        self._current_page_payload: Any = None
+        self._project_paths: ProjectPaths | None = None
+        self._theme = Theme.SYSTEM
+        self._build_docks()
+        self._build_actions()
+        self._build_toolbar()
+        self._connect_signals()
+        self.statusBar().showMessage("Open a project to begin")
+        self._restore_preferences()
+
+    def _build_docks(self) -> None:
+        pages_dock = QDockWidget("Pages", self)
+        pages_dock.setObjectName("pagesDock")
+        pages_dock.setWidget(self.page_list)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, pages_dock)
+        review_dock = QDockWidget("Review", self)
+        review_dock.setObjectName("reviewDock")
+        review_dock.setWidget(self.review_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, review_dock)
+
+    def _action(
+        self,
+        text: str,
+        slot,
+        shortcut: QKeySequence | QKeySequence.StandardKey | str | None = None,
+        tooltip: str = "",
+        checkable: bool = False,
+    ) -> QAction:
+        action = QAction(text, self)
+        action.setToolTip(tooltip or text)
+        action.setStatusTip(tooltip or text)
+        action.setCheckable(checkable)
+        if shortcut is not None:
+            action.setShortcut(shortcut)
+        action.triggered.connect(slot)
+        return action
+
+    def _build_actions(self) -> None:
+        self.open_action = self._action(
+            "Open Project…", self.open_project_dialog, QKeySequence.StandardKey.Open,
+            "Open separate image and PAGE XML folders",
+        )
+        self.save_action = self._action(
+            "Save", self.request_save, QKeySequence.StandardKey.Save,
+            "Validate, back up, and save the current PAGE XML",
+        )
+        self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        self.undo_action.setShortcuts(QKeySequence.StandardKey.Undo)
+        self.redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        self.redo_action.setShortcuts(QKeySequence.StandardKey.Redo)
+        self.previous_action = self._action("Previous", self.previous_page, QKeySequence("PgUp"))
+        self.next_action = self._action("Next", self.next_page, QKeySequence("PgDown"))
+        self.zoom_in_action = self._action(
+            "Zoom In", self.canvas.zoom_in, QKeySequence.StandardKey.ZoomIn
+        )
+        self.zoom_out_action = self._action(
+            "Zoom Out", self.canvas.zoom_out, QKeySequence.StandardKey.ZoomOut
+        )
+        self.fit_action = self._action(
+            "Fit", self.canvas.fit_page, QKeySequence("F"), "Fit page to view"
+        )
+        self.rotate_left_action = self._action(
+            "Rotate Left", self.canvas.rotate_left, QKeySequence("[")
+        )
+        self.rotate_right_action = self._action(
+            "Rotate Right", self.canvas.rotate_right, QKeySequence("]")
+        )
+        self.reset_rotation_action = self._action("Reset Rotation", self.canvas.reset_rotation)
+        self.polygons_action = self._action("Polygons", self._update_overlays, checkable=True)
+        self.polygons_action.setChecked(True)
+        self.baselines_action = self._action("Baselines", self._update_overlays, checkable=True)
+        self.baselines_action.setChecked(True)
+        self.diff_action = self._action("Diff", self._update_diff, checkable=True)
+        self.diff_action.setChecked(True)
+        self.normalize_action = self._action("Unicode NFC", lambda: None, checkable=True)
+        self.normalize_action.setChecked(True)
+
+        self.mode_group = QActionGroup(self)
+        self.mode_group.setExclusive(True)
+        mode_specs = (
+            ("Select / Move", EditMode.SELECT, "V"),
+            ("Add Vertex", EditMode.ADD_VERTEX, "A"),
+            ("Delete Vertex", EditMode.DELETE_VERTEX, "D"),
+            ("Replace Polygon", EditMode.REPLACE_POLYGON, "P"),
+            ("Replace Baseline", EditMode.REPLACE_BASELINE, "B"),
+        )
+        self.mode_actions: dict[EditMode, QAction] = {}
+        for label, mode, shortcut in mode_specs:
+            action = self._action(
+                label,
+                lambda checked=False, value=mode: self.canvas.set_edit_mode(value),
+                shortcut,
+                checkable=True,
+            )
+            self.mode_group.addAction(action)
+            self.mode_actions[mode] = action
+        self.mode_actions[EditMode.SELECT].setChecked(True)
+
+        self.correct_page_action = self._action(
+            "Auto-correct Page",
+            self.autoCorrectPageRequested,
+            tooltip="Apply automatic correction to this page in memory",
+        )
+        self.correct_batch_action = self._action(
+            "Auto-correct Folder",
+            self.autoCorrectBatchRequested,
+            tooltip="Apply automatic correction to the project in memory",
+        )
+
+    def _build_toolbar(self) -> None:
+        toolbar = QToolBar("Editor", self)
+        toolbar.setObjectName("editorToolbar")
+        toolbar.setMovable(False)
+        for action in (
+            self.open_action, self.save_action, self.undo_action, self.redo_action,
+            self.previous_action, self.next_action, self.zoom_out_action, self.zoom_in_action,
+            self.fit_action, self.rotate_left_action, self.rotate_right_action,
+            self.polygons_action, self.baselines_action, self.diff_action,
+        ):
+            toolbar.addAction(action)
+        toolbar.addSeparator()
+        for action in self.mode_group.actions():
+            toolbar.addAction(action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.correct_page_action)
+        toolbar.addAction(self.correct_batch_action)
+        self.theme_combo = QComboBox(toolbar)
+        self.theme_combo.setAccessibleName("Application theme")
+        self.theme_combo.addItems([theme.value for theme in Theme])
+        toolbar.addWidget(self.theme_combo)
+        self.addToolBar(toolbar)
+
+    def _connect_signals(self) -> None:
+        self.page_list.currentItemChanged.connect(self._page_item_changed)
+        self.canvas.overlay.textCommitRequested.connect(self._commit_text)
+        self.canvas.overlay.keepRequested.connect(self.keepCorrectionRequested)
+        self.canvas.overlay.rejectRequested.connect(self.rejectCorrectionRequested)
+        self.canvas.lineGeometryChanged.connect(self.lineGeometryChanged)
+        self.canvas.geometryEditRejected.connect(
+            lambda message: self.statusBar().showMessage(f"Edit rejected: {message}", 6000)
+        )
+        self.canvas.zoomChanged.connect(self._update_status)
+        self.canvas.rotationChanged.connect(self._update_status)
+        self.undo_stack.cleanChanged.connect(self._update_dirty_state)
+        self.theme_combo.currentTextChanged.connect(self.set_theme)
+        self.review_panel.autoCorrectPageRequested.connect(self.autoCorrectPageRequested)
+        self.review_panel.autoCorrectBatchRequested.connect(self.autoCorrectBatchRequested)
+        self.review_panel.cancelRequested.connect(self.cancelCorrectionRequested)
+        self.review_panel.keepPageRequested.connect(self.keepPageCorrectionsRequested)
+        self.review_panel.rejectPageRequested.connect(self.rejectPageCorrectionsRequested)
+
+    def open_project_dialog(self) -> None:
+        if not self.confirm_discard_or_save("opening another project"):
+            return
+        dialog = ProjectOpenDialog(self)
+        if dialog.exec() == ProjectOpenDialog.DialogCode.Accepted:
+            self._project_paths = dialog.paths()
+            self.normalize_action.setChecked(self._project_paths.normalize_nfc)
+            self.review_panel.set_project_summary(
+                f"Images: {self._project_paths.image_directory}\n"
+                f"XML: {self._project_paths.xml_directory}"
+            )
+            self.openProjectRequested.emit(self._project_paths)
+
+    def set_pages(self, pages: list[Any] | tuple[Any, ...]) -> None:
+        """Populate the browser with duck-typed PagePair/domain records."""
+
+        self.page_list.clear()
+        for page in pages:
+            image = getattr(page, "image_path", getattr(page, "image", ""))
+            xml = getattr(page, "xml_path", getattr(page, "xml", ""))
+            name = Path(str(image or xml)).stem or str(getattr(page, "name", "Untitled"))
+            method = getattr(page, "pairing_method", getattr(page, "status", "matched"))
+            diagnostics = getattr(page, "diagnostics", ())
+            status = str(getattr(method, "value", method))
+            if diagnostics:
+                status += f" · {len(diagnostics)} warning(s)"
+            item = QTreeWidgetItem((name, status))
+            item.setData(0, Qt.ItemDataRole.UserRole, page)
+            item.setToolTip(1, "\n".join(map(str, diagnostics)))
+            self.page_list.addTopLevelItem(item)
+        if self.page_list.topLevelItemCount():
+            first = self.page_list.topLevelItem(0)
+            if first is not None:
+                self.page_list.setCurrentItem(first)
+
+    def load_page(
+        self,
+        image,
+        lines,
+        page_payload: Any = None,
+        on_change=None,
+    ) -> None:
+        self.canvas.set_page(image, lines, on_change)
+        self._current_page_payload = page_payload
+        self.undo_stack.clear()
+        self.undo_stack.setClean()
+        self._update_status()
+
+    def refresh_lines(self, lines, *, selected_line_id: str | None = None) -> None:
+        """Rebuild line overlays while preserving the current view and undo stack."""
+
+        image_item = self.canvas.page_scene.image_item
+        if image_item is None:
+            return
+        pixmap = image_item.pixmap()
+        transform = self.canvas.transform()
+        center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
+        self.canvas.overlay.set_line(None)
+        self.canvas.page_scene.set_page(pixmap, lines)
+        self.canvas.setTransform(transform)
+        self.canvas.centerOn(center)
+        if selected_line_id:
+            item = self.canvas.page_scene.line_item(selected_line_id)
+            if item is not None:
+                item.setSelected(True)
+        self._update_overlays()
+        self._update_status()
+
+    def request_save(self) -> None:
+        self.canvas.overlay.commit_if_changed()
+        self.saveRequested.emit()
+
+    def mark_saved(self) -> None:
+        self.undo_stack.setClean()
+        self.statusBar().showMessage("Saved", 3000)
+
+    def previous_page(self) -> None:
+        row = self.page_list.indexOfTopLevelItem(self.page_list.currentItem())
+        if row > 0:
+            item = self.page_list.topLevelItem(row - 1)
+            if item is not None:
+                self.page_list.setCurrentItem(item)
+
+    def next_page(self) -> None:
+        row = self.page_list.indexOfTopLevelItem(self.page_list.currentItem())
+        if 0 <= row < self.page_list.topLevelItemCount() - 1:
+            item = self.page_list.topLevelItem(row + 1)
+            if item is not None:
+                self.page_list.setCurrentItem(item)
+
+    def set_theme(self, theme: Theme | str) -> None:
+        self._theme = apply_theme(QApplication.instance(), theme)  # type: ignore[arg-type]
+        self.canvas.page_scene.set_theme(self._theme)
+        QSettings().setValue("ui/theme", self._theme.value)
+
+    def set_correction_progress(self, value: int | None, status: str = "") -> None:
+        self.review_panel.set_correction_progress(value, status)
+        if status:
+            self.statusBar().showMessage(status)
+
+    def set_validation(self, summary: str, messages: list[str] | tuple[str, ...] = ()) -> None:
+        self.review_panel.set_validation(summary, messages)
+
+    def confirm_discard_or_save(self, operation: str) -> bool:
+        self.canvas.overlay.commit_if_changed()
+        if self.undo_stack.isClean():
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "Unsaved changes",
+            f"The current page has unsaved changes. Save before {operation}?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            self.saveRequested.emit()
+            # Saving may be asynchronous. Stay on the current page until the
+            # application service calls mark_saved and repeats the operation.
+            return self.undo_stack.isClean()
+        return True
+
+    def _page_item_changed(
+        self,
+        current: QTreeWidgetItem | None,
+        previous: QTreeWidgetItem | None,
+    ) -> None:
+        if current is None:
+            return
+        if previous is not None and not self.confirm_discard_or_save("changing pages"):
+            self.page_list.blockSignals(True)
+            self.page_list.setCurrentItem(previous)
+            self.page_list.blockSignals(False)
+            return
+        payload = current.data(0, Qt.ItemDataRole.UserRole)
+        self.pageRequested.emit(payload)
+
+    def _commit_text(self, line: LineAdapter, value: str) -> None:
+        if self.normalize_action.isChecked():
+            value = unicodedata.normalize("NFC", value)
+        before = line.text
+        if before == value:
+            return
+
+        def notify(updated: LineAdapter) -> None:
+            item = self.canvas.page_scene.line_item(updated.id)
+            if item is not None:
+                item.update()
+            self.lineTextChanged.emit(updated.id, updated.text)
+
+        self.undo_stack.push(TextEditCommand(line, before, value, notify))
+
+    def _update_overlays(self) -> None:
+        self.canvas.set_overlay_visibility(
+            self.polygons_action.isChecked(), self.baselines_action.isChecked()
+        )
+
+    def _update_diff(self) -> None:
+        self.canvas.overlay.set_diff_visible(self.diff_action.isChecked())
+        self.canvas.update_overlay_position()
+
+    def _update_dirty_state(self, *args) -> None:
+        del args
+        dirty = not self.undo_stack.isClean()
+        self.setWindowModified(dirty)
+        self.setWindowTitle("PAGE Line Editor[*]")
+        self._update_status()
+
+    def _update_status(self, *args) -> None:
+        del args
+        item = self.canvas.page_scene.selected_line_item()
+        selected = f" · Line {item.adapter.id}" if item is not None else ""
+        dirty = " · Modified" if not self.undo_stack.isClean() else ""
+        self.statusBar().showMessage(
+            f"Zoom {self.canvas.zoom_factor * 100:.0f}% · "
+            f"Rotation {self.canvas.view_rotation}°{selected}{dirty}"
+        )
+
+    def _restore_preferences(self) -> None:
+        theme = str(QSettings().value("ui/theme", Theme.SYSTEM.value))
+        if theme not in {value.value for value in Theme}:
+            theme = Theme.SYSTEM.value
+        self.theme_combo.setCurrentText(theme)
+        self.set_theme(theme)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.confirm_discard_or_save("quitting"):
+            event.accept()
+        else:
+            event.ignore()

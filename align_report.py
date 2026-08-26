@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501
 """Align Transkribus PAGE XML lines with Word ground-truth lines and write a report."""
 
 from __future__ import annotations
@@ -177,9 +178,7 @@ def is_noise_line(line: XmlLine) -> bool:
         return True
     if short and ar < 0.4:
         return True
-    if dr >= 0.4 and short:
-        return True
-    return False
+    return bool(dr >= 0.4 and short)
 
 
 def parse_points(points: str | None) -> list[tuple[int, int]]:
@@ -265,7 +264,7 @@ def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
 
 def median_spacing(lines: list[XmlLine]) -> float:
     ys = [ln.baseline_y for ln in lines]
-    diffs = [b - a for a, b in zip(ys, ys[1:]) if b - a > 1]
+    diffs = [b - a for a, b in zip(ys, ys[1:], strict=False) if b - a > 1]
     if not diffs:
         return 60.0
     return float(statistics.median(diffs))
