@@ -65,6 +65,7 @@ The current implementation is healthy but is not yet an application service:
 ### 4.1 Main window
 
 - **Top toolbar:** Open Project, Save, Undo, Redo, Previous/Next Page, zoom controls, Fit, rotate left/right/reset, polygon/baseline/diff toggles, theme, and Auto Correct.
+- **Left tool palette:** Pan Canvas, Select/Edit, Move Whole Line, add/delete vertex, and polygon/baseline replacement as separate vector-editor-style tools.
 - **Left page browser:** matched pairs, missing/ambiguous files, dirty marker, validation state, and auto-correction review counts.
 - **Centre canvas:** page image plus vector overlays, vertex handles for only the selected line, and the anchored transcription/diff editor.
 - **Right review panel:** project folders/settings, run progress, page-level accept/reject controls, filter by proposal status, and validation messages. It does not replace the anchored editor.
@@ -101,11 +102,13 @@ Scanner rules:
 
 ### 4.4 Geometry tools
 
-- **Select/Edit:** drag a vertex or move the whole polygon/baseline together.
+- **Select/Edit:** select a single line by default, Shift-click for multi-select, and drag vertex handles without moving the whole line.
+- **Pan Canvas:** left-drag to navigate; Ctrl/Command temporarily invokes pan from any tool.
+- **Move Whole Line:** deliberately move the polygon and baseline together as a separate, less-common operation.
 - **Add Vertex:** insert at the closest segment of the chosen polygon or baseline.
 - **Delete Vertex:** delete a selected handle while enforcing at least three polygon points and two baseline points.
 - **Replace Shape:** click a new point sequence; Enter or double-click commits, Escape cancels.
-- Polygon and baseline can also be moved independently from an inspector action, but whole-line move is the default drag behaviour.
+- Whole-line movement is isolated from normal selection to prevent accidental geometry edits.
 - Dragging previews continuously but creates one undo command at mouse release.
 - Coordinates stay in raw image-pixel space and are quantized to non-negative PAGE integers only when an edit commits.
 - Edited polygons cannot self-intersect; edited baselines must remain inside the line polygon; edited line geometry must remain inside image bounds and its parent region. Existing legacy inconsistencies are warnings, but a new edit that introduces an inconsistency is blocked.

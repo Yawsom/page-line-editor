@@ -29,7 +29,9 @@ from .vertex_handle import VertexHandle
 
 
 class EditMode(StrEnum):
+    PAN = "pan"
     SELECT = "select"
+    MOVE_LINE = "move_line"
     ADD_VERTEX = "add_vertex"
     DELETE_VERTEX = "delete_vertex"
     REPLACE_POLYGON = "replace_polygon"
@@ -72,7 +74,7 @@ class PageCanvasView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
         self.setBackgroundBrush(Qt.GlobalColor.darkGray)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self._zoom = 1.0
         self._rotation = 0
         self._mode = EditMode.SELECT
@@ -107,16 +109,13 @@ class PageCanvasView(QGraphicsView):
     def set_edit_mode(self, mode: EditMode | str) -> None:
         self.cancel_replacement()
         self._mode = EditMode(mode)
-        cursor = (
-            Qt.CursorShape.CrossCursor
-            if self._mode is not EditMode.SELECT
-            else Qt.CursorShape.OpenHandCursor
-        )
-        self.viewport().setCursor(cursor)
+        self._apply_item_interactions()
+        self._restore_tool_cursor()
 
     def set_page(self, image, lines, on_change=None) -> None:
         self.overlay.set_line(None)
         self.page_scene.set_page(image, lines, on_change)
+        self._apply_item_interactions()
         self.reset_rotation()
         self.fit_page()
 
@@ -269,15 +268,28 @@ class PageCanvasView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self._begin_pan(event, Qt.MouseButton.MiddleButton)
+        pan_modifier = event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+        )
+        if event.button() == Qt.MouseButton.MiddleButton or (
+            event.button() == Qt.MouseButton.LeftButton
+            and (self._mode is EditMode.PAN or pan_modifier)
+        ):
+            self._begin_pan(event, event.button())
             return
         if event.button() == Qt.MouseButton.LeftButton and self._mode is EditMode.SELECT:
             clicked = self.itemAt(event.position().toPoint())
             if clicked is None or isinstance(clicked, QGraphicsPixmapItem):
-                self._begin_pan(event, Qt.MouseButton.LeftButton)
+                self.page_scene.clearSelection()
+                event.accept()
                 return
-        if event.button() == Qt.MouseButton.LeftButton and self._mode is not EditMode.SELECT:
+        geometry_modes = {
+            EditMode.ADD_VERTEX,
+            EditMode.DELETE_VERTEX,
+            EditMode.REPLACE_POLYGON,
+            EditMode.REPLACE_BASELINE,
+        }
+        if event.button() == Qt.MouseButton.LeftButton and self._mode in geometry_modes:
             scene_pos = self.mapToScene(event.position().toPoint())
             if self._mode is EditMode.ADD_VERTEX:
                 self._add_vertex(scene_pos)
@@ -304,12 +316,7 @@ class PageCanvasView(QGraphicsView):
         if self._panning and event.button() == self._pan_button:
             self._panning = False
             self._pan_button = None
-            cursor = (
-                Qt.CursorShape.OpenHandCursor
-                if self._mode is EditMode.SELECT
-                else Qt.CursorShape.CrossCursor
-            )
-            self.viewport().setCursor(cursor)
+            self._restore_tool_cursor()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -321,6 +328,21 @@ class PageCanvasView(QGraphicsView):
         self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
         event.accept()
 
+    def _apply_item_interactions(self) -> None:
+        for item in self.page_scene.line_items:
+            item.set_interaction_mode(
+                whole_line_movable=self._mode is EditMode.MOVE_LINE,
+                vertex_editable=self._mode is EditMode.SELECT,
+            )
+
+    def _restore_tool_cursor(self) -> None:
+        cursors = {
+            EditMode.PAN: Qt.CursorShape.OpenHandCursor,
+            EditMode.SELECT: Qt.CursorShape.ArrowCursor,
+            EditMode.MOVE_LINE: Qt.CursorShape.SizeAllCursor,
+        }
+        self.viewport().setCursor(cursors.get(self._mode, Qt.CursorShape.CrossCursor))
+
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if self._mode in (EditMode.REPLACE_POLYGON, EditMode.REPLACE_BASELINE):
             self.finish_replacement()
@@ -329,6 +351,8 @@ class PageCanvasView(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta):
+            self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
         if self._replacement_points and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.finish_replacement()
             event.accept()
@@ -338,6 +362,11 @@ class PageCanvasView(QGraphicsView):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta) and not self._panning:
+            self._restore_tool_cursor()
+        super().keyReleaseEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

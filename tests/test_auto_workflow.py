@@ -113,6 +113,29 @@ def test_run_applies_in_memory_audits_and_never_overwrites_xml(tmp_path: Path) -
     assert xml_path.read_bytes() == original_bytes
 
 
+def test_removed_noise_line_is_deleted_with_geometry_hidden_from_active_page(
+    tmp_path: Path,
+) -> None:
+    xml_path = tmp_path / "1r.xml"
+    write_xml(
+        xml_path,
+        text_line(
+            "noise",
+            "1",
+            coords="100,100 120,100 120,130 100,130",
+            baseline="102,125 118,125",
+        ),
+    )
+    document = parse_page(xml_path)
+    run = AutoCorrectionWorkflow().run_page(document, (), tmp_path / "history")
+    line = document.line_by_id("noise")
+
+    assert run.application_for_line("noise").decision is ReviewDecision.APPLIED
+    assert line.deleted
+    assert line.correction_status == "REMOVED"
+    assert document.active_lines == []
+
+
 def test_keep_line_and_page_confirm_automatically_applied_values(tmp_path: Path) -> None:
     xml_path = tmp_path / "1r.xml"
     original_bytes = write_xml(

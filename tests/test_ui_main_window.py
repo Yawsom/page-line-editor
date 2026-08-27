@@ -10,7 +10,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QSignalSpy
-from PySide6.QtWidgets import QFrame, QLabel, QToolButton
+from PySide6.QtWidgets import QFrame, QLabel
 
 from page_line_editor.ui.canvas import EditMode
 from page_line_editor.ui.main_window import MainWindow
@@ -49,22 +49,18 @@ def test_toolbar_exposes_save_correction_and_geometry_modes(
     assert set(window.mode_actions) == set(EditMode)
     assert window.polygons_action.isChecked()
     assert window.baselines_action.isChecked()
-    assert (
-        window.edit_tool_button.popupMode()
-        == QToolButton.ToolButtonPopupMode.InstantPopup
-    )
+    assert window.toolBarArea(window.tools_toolbar) == Qt.ToolBarArea.LeftToolBarArea
+    assert all(not action.icon().isNull() for action in window.mode_actions.values())
 
 
-def test_toolbar_edit_menu_stays_open_for_selection(qtbot) -> None:  # type: ignore[no-untyped-def]
+def test_left_tool_palette_switches_canvas_interaction(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
-    window.edit_menu.popup(window.edit_tool_button.mapToGlobal(window.edit_tool_button.rect().bottomLeft()))
-    qtbot.waitUntil(window.edit_menu.isVisible)
-    qtbot.wait(80)
-    assert window.edit_menu.isVisible()
-    window.mode_actions[EditMode.ADD_VERTEX].trigger()
-    assert window.canvas.edit_mode is EditMode.ADD_VERTEX
-    assert window.edit_tool_button.text() == "Add Vertex ▾"
-    window.edit_menu.close()
+    window.mode_actions[EditMode.PAN].trigger()
+    assert window.canvas.edit_mode is EditMode.PAN
+    assert window.mode_actions[EditMode.PAN].isChecked()
+    window.mode_actions[EditMode.MOVE_LINE].trigger()
+    assert window.canvas.edit_mode is EditMode.MOVE_LINE
+    assert window.mode_actions[EditMode.MOVE_LINE].isChecked()
 
 
 def test_text_commit_and_undo_marks_window_dirty(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -91,6 +87,16 @@ def test_applied_correction_has_diff_and_revert_signal(
     assert window.canvas.overlay.status_badge.text() == "OCR"
     assert window.canvas.overlay.corrected_label.text() == "قديم"
     assert window.canvas.overlay.original_label.text() == "قديم"
+    assert window.canvas.overlay.addition_gutter.text() == "+"
+    assert window.canvas.overlay.deletion_gutter.text() == "−"
+    assert any(
+        color in window.canvas.overlay.diff_card.styleSheet()
+        for color in ("#e6ffec", "#12261b")
+    )
+    assert any(
+        color in window.canvas.overlay.status_badge.styleSheet()
+        for color in ("#0969da", "#58a6ff")
+    )
     assert window.canvas.overlay.reject_button.isVisible()
     spy = QSignalSpy(window.rejectCorrectionRequested)
     window.canvas.overlay.reject_button.click()
@@ -108,6 +114,7 @@ def test_review_panel_shows_correction_above_original_with_removed_tag(
         after_text=None,
         before_text="نص زائد",
         actionable=True,
+        after=(SimpleNamespace(deleted=True),),
     )
     application = SimpleNamespace(
         proposal=proposal,
@@ -118,10 +125,43 @@ def test_review_panel_shows_correction_above_original_with_removed_tag(
     card = window.review_panel.findChild(QFrame, "correctionReviewCard")
     assert card is not None
     labels = [label.text() for label in card.findChildren(QLabel)]
-    assert labels.index("CORRECTION") < labels.index("ORIGINAL PAGE XML")
     assert "REMOVED" in labels
     assert "Removed from PAGE XML" in labels
     assert "نص زائد" in labels
+    addition = card.findChild(QFrame, "reviewAdditionRow")
+    deletion = card.findChild(QFrame, "reviewDeletionRow")
+    assert addition is not None and deletion is not None
+    assert card.layout().indexOf(addition) < card.layout().indexOf(deletion)
+
+
+def test_removed_line_geometry_disappears_when_scene_refreshes(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    assert window.canvas.page_scene.line_item("arabic-line") is not None
+    window.refresh_lines([])
+    assert window.canvas.page_scene.line_item("arabic-line") is None
+    assert not window.canvas.page_scene.line_items
+
+
+def test_report_only_extra_is_not_mislabeled_as_removed(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    proposal = SimpleNamespace(
+        primary_line_id="arabic-line",
+        status=SimpleNamespace(value="EXTRA"),
+        after_text=None,
+        before_text="سطر يحتاج مراجعة",
+        actionable=False,
+        after=(SimpleNamespace(deleted=False),),
+    )
+    application = SimpleNamespace(
+        proposal=proposal,
+        decision=SimpleNamespace(value="report_only"),
+    )
+    window.set_correction_review(SimpleNamespace(applications=(application,)))
+    labels = [label.text() for label in window.review_panel.findChildren(QLabel)]
+
+    assert "EXTRA" in labels
+    assert "REMOVED" not in labels
+    assert "Not automatically removed" in labels
 
 
 def test_theme_switch_preserves_active_editor_buffer(qtbot) -> None:  # type: ignore[no-untyped-def]

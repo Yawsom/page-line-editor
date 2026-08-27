@@ -17,7 +17,10 @@ line. Clicking the polygon interior, border, or baseline selects the same line.
 - Undoable transcription editing and polygon/baseline vertex drag, add, delete,
   whole-line move, and shape replacement.
 - Geometry-scaled transcription editing and in-app correction cards showing the
-  correction above the original PAGE text with MATCHED/OCR/REMOVED-style tags.
+  correction as a green addition above the red original PAGE text, with
+  color-coded MATCHED/OCR/REMOVED-style tags.
+- Left-side vector tool palette separating canvas pan, line selection/vertex
+  editing, whole-line movement, and vertex/shape operations.
 - Geometry guards for minimum vertex counts, image bounds, self-intersections,
   and newly introduced baselines outside their polygons.
 - Toggleable Unicode NFC normalization for manual transcription edits.
@@ -75,9 +78,11 @@ In the application, choose **Open Project** and provide:
 Ground-truth pages use paragraphs such as `[93v]`; each following non-empty
 paragraph is one manuscript line until the next folio header.
 
-In **Select / Move** mode, left-drag the empty page or background to pan. Drag a
-line to move its geometry, drag its handles to edit vertices, or middle-drag
-from anywhere to pan without changing tools. Use Ctrl/Command + wheel to zoom.
+Use **Select / Edit** to select one line and edit its vertex handles; Shift-click
+extends or toggles a multi-selection. Use **Pan Canvas** to drag the page and
+**Move Whole Line** for the deliberately separate, less-common geometry move.
+Holding Ctrl/Command temporarily pans with the left mouse button from any tool,
+and middle-drag also pans. Use Ctrl/Command + wheel to zoom.
 
 The historical command-line workflow remains available during the transition:
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -140,29 +141,34 @@ class ReviewPanel(QWidget):
 
     def _correction_card(self, entry: Mapping[str, object]) -> QFrame:
         card = QFrame(self.review_content)
-        card.setFrameShape(QFrame.Shape.StyledPanel)
         card.setObjectName("correctionReviewCard")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 7, 8, 7)
-        layout.setSpacing(3)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         status = str(entry.get("status", ""))
-        badge = QLabel(status, card)
+        header = QFrame(card)
+        header.setObjectName("reviewDiffHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 5, 8, 5)
+        badge = QLabel(status, header)
+        badge.setObjectName("reviewStatusBadge")
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(
-            "font-weight: 700; padding: 2px 7px; border: 1px solid palette(mid); "
-            "border-radius: 8px;"
-        )
-        layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self._caption("CORRECTION", card))
-        layout.addWidget(self._rtl_text(str(entry.get("corrected", "—")), card))
-        layout.addWidget(self._caption("ORIGINAL PAGE XML", card))
-        layout.addWidget(self._rtl_text(str(entry.get("original", "—")), card))
-
+        header_layout.addWidget(badge)
+        header_layout.addStretch(1)
         decision = str(entry.get("decision", ""))
         if decision:
-            decision_label = self._caption(f"DECISION: {decision.upper()}", card)
-            layout.addWidget(decision_label)
+            decision_label = QLabel(decision.upper().replace("_", " "), header)
+            decision_label.setObjectName("reviewDecision")
+            header_layout.addWidget(decision_label)
+        layout.addWidget(header)
+        corrected = self._rtl_text(str(entry.get("corrected", "—")), card)
+        corrected.setObjectName("reviewCorrectedText")
+        original = self._rtl_text(str(entry.get("original", "—")), card)
+        original.setObjectName("reviewOriginalText")
+        layout.addWidget(self._review_diff_row("reviewAdditionRow", "+", corrected))
+        layout.addWidget(self._review_diff_row("reviewDeletionRow", "−", original))
+
         line_id = str(entry.get("line_id", ""))
         if bool(entry.get("actionable")) and line_id and decision not in {
             "kept",
@@ -180,14 +186,28 @@ class ReviewPanel(QWidget):
             row.addStretch(1)
             row.addWidget(keep)
             row.addWidget(reject)
-            layout.addLayout(row)
+            footer = QFrame(card)
+            footer.setObjectName("reviewDiffFooter")
+            footer.setLayout(row)
+            row.setContentsMargins(8, 6, 8, 6)
+            layout.addWidget(footer)
+        self._style_card(card, badge, status)
         return card
 
     @staticmethod
-    def _caption(text: str, parent: QWidget) -> QLabel:
-        label = QLabel(text, parent)
-        label.setStyleSheet("font-size: 10px; color: palette(mid);")
-        return label
+    def _review_diff_row(name: str, marker: str, content: QWidget) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName(name)
+        gutter = QLabel(marker, frame)
+        gutter.setObjectName(f"{name}Gutter")
+        gutter.setFixedWidth(28)
+        gutter.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(gutter)
+        row.addWidget(content, 1)
+        return frame
 
     @staticmethod
     def _rtl_text(text: str, parent: QWidget) -> QLabel:
@@ -196,4 +216,57 @@ class ReviewPanel(QWidget):
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         label.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label.setContentsMargins(7, 5, 7, 5)
         return label
+
+    def _style_card(self, card: QFrame, badge: QLabel, status: str) -> None:
+        dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
+        if dark:
+            border, header, text = "#30363d", "#161b22", "#e6edf3"
+            add_line, add_gutter = "#12261b", "#1f3d2a"
+            del_line, del_gutter = "#321c20", "#512329"
+        else:
+            border, header, text = "#d0d7de", "#f6f8fa", "#1f2328"
+            add_line, add_gutter = "#e6ffec", "#ccffd8"
+            del_line, del_gutter = "#ffebe9", "#ffd7d5"
+        card.setStyleSheet(
+            f"QFrame#correctionReviewCard {{ border: 1px solid {border}; "
+            "border-radius: 6px; }"
+            f"QFrame#reviewDiffHeader, QFrame#reviewDiffFooter {{ background: {header}; }}"
+            f"QFrame#reviewAdditionRow {{ background: {add_line}; "
+            f"border-top: 1px solid {border}; }}"
+            f"QLabel#reviewAdditionRowGutter {{ background: {add_gutter}; color: {text}; }}"
+            f"QFrame#reviewDeletionRow {{ background: {del_line}; "
+            f"border-top: 1px solid {border}; }}"
+            f"QLabel#reviewDeletionRowGutter {{ background: {del_gutter}; color: {text}; }}"
+            f"QLabel#reviewCorrectedText, QLabel#reviewOriginalText {{ color: {text}; }}"
+        )
+        badge_colors = {
+            "MATCHED": ("#1a7f37", "#dafbe1"),
+            "OCR": ("#0969da", "#ddf4ff"),
+            "REMOVED": ("#cf222e", "#ffebe9"),
+            "EXTRA": ("#9a6700", "#fff8c5"),
+            "MERGE": ("#8250df", "#fbefff"),
+            "SPLIT": ("#8250df", "#fbefff"),
+        }
+        foreground, background = badge_colors.get(status, ("#57606a", "#f6f8fa"))
+        if dark:
+            background = header
+            foreground = {
+                "MATCHED": "#3fb950",
+                "OCR": "#58a6ff",
+                "REMOVED": "#ff7b72",
+                "EXTRA": "#d29922",
+                "MERGE": "#bc8cff",
+                "SPLIT": "#bc8cff",
+            }.get(status, "#8b949e")
+        badge.setStyleSheet(
+            f"color: {foreground}; background: {background}; border: 1px solid {foreground}; "
+            "border-radius: 8px; font-weight: 700; padding: 1px 6px;"
+        )
+
+    def event(self, event: QEvent) -> bool:
+        result = super().event(event)
+        if event.type() == QEvent.Type.PaletteChange and getattr(self, "_corrections", None):
+            self._rebuild_corrections()
+        return result

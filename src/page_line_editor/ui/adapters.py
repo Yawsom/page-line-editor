@@ -129,7 +129,7 @@ class LineAdapter:
     def correction_status(self) -> str:
         value = _read(self.source, ("correction_status",), "")
         status = str(getattr(value, "value", value) or "").upper()
-        return {"MATCH": "MATCHED", "EXTRA": "REMOVED"}.get(status, status)
+        return {"MATCH": "MATCHED"}.get(status, status)
 
     @property
     def pre_correction_text(self) -> str:

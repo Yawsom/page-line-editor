@@ -27,6 +27,7 @@ class PageScene(QGraphicsScene):
         super().__init__(parent)
         self.image_item: QGraphicsPixmapItem | None = None
         self.line_items: list[LineGraphicsItem] = []
+        self._active_line: LineGraphicsItem | None = None
         self.theme = Theme.SYSTEM
         self.selectionChanged.connect(self._selection_changed)
 
@@ -46,6 +47,7 @@ class PageScene(QGraphicsScene):
         self.image_item = self.addPixmap(pixmap)
         self.image_item.setZValue(-10)
         self.line_items = []
+        self._active_line = None
         for source in lines:
             adapter = source if isinstance(source, LineAdapter) else LineAdapter(source, on_change)
             item = LineGraphicsItem(adapter, self.theme)
@@ -55,6 +57,7 @@ class PageScene(QGraphicsScene):
                 )
             )
             self.addItem(item)
+            item.activated.connect(self._activate_line)
             self.line_items.append(item)
         image_rect = QRectF(pixmap.rect())
         # Lower margin makes room for the viewport editor without changing PAGE coordinates.
@@ -70,6 +73,8 @@ class PageScene(QGraphicsScene):
             item.set_overlay_visibility(polygons, baselines)
 
     def selected_line_item(self) -> LineGraphicsItem | None:
+        if self._active_line is not None and self._active_line.isSelected():
+            return self._active_line
         return next(
             (item for item in self.selectedItems() if isinstance(item, LineGraphicsItem)),
             None,
@@ -80,4 +85,8 @@ class PageScene(QGraphicsScene):
 
     def _selection_changed(self) -> None:
         item = self.selected_line_item()
+        self._active_line = item
         self.lineSelected.emit(item)
+
+    def _activate_line(self, item: LineGraphicsItem) -> None:
+        self._active_line = item

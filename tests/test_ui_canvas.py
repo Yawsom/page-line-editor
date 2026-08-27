@@ -33,6 +33,15 @@ def sample_line() -> SampleLine:
     )
 
 
+def second_line() -> SampleLine:
+    return SampleLine(
+        id="line-2",
+        text="سطر ثان",
+        polygon=((25, 105), (175, 105), (175, 150), (25, 150)),
+        baseline=((35, 140), (165, 140)),
+    )
+
+
 def make_view(qtbot):  # type: ignore[no-untyped-def]
     view = PageCanvasView()
     stack = QUndoStack(view)
@@ -140,11 +149,15 @@ def test_editor_font_and_width_follow_selected_geometry(qtbot) -> None:  # type:
     line_rect = view.mapFromScene(item.sceneBoundingRect()).boundingRect()
 
     assert large_font > small_font
-    assert view.overlay.width() == max(280, line_rect.width())
+    assert view.overlay.width() == max(320, line_rect.width())
+    assert view.overlay.editor.maxLength() >= len(view.overlay.editor.text())
+    view.overlay.editor.setPlainText("سطر\nواحد")
+    assert view.overlay.editor.toPlainText() == "سطر واحد"
 
 
-def test_left_drag_on_page_background_pans_canvas(qtbot) -> None:  # type: ignore[no-untyped-def]
+def test_pan_tool_left_drags_page_background(qtbot) -> None:  # type: ignore[no-untyped-def]
     view, _ = make_view(qtbot)
+    view.set_edit_mode(EditMode.PAN)
     view.set_zoom(3.0)
     start = view.mapFromScene(QPointF(220, 140))
     before = view.verticalScrollBar().value()
@@ -157,6 +170,80 @@ def test_left_drag_on_page_background_pans_canvas(qtbot) -> None:  # type: ignor
     )
     assert view.verticalScrollBar().value() > before
     assert not view._panning
+
+
+def test_control_drag_temporarily_pans_from_select_tool(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    view.set_zoom(3.0)
+    assert view.edit_mode is EditMode.SELECT
+    start = view.mapFromScene(QPointF(220, 140))
+    before = view.verticalScrollBar().value()
+    QTest.mousePress(
+        view.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier,
+        start,
+    )
+    QTest.mouseMove(view.viewport(), start - QPointF(0, 80).toPoint(), delay=20)
+    QTest.mouseRelease(
+        view.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier,
+        start - QPointF(0, 80).toPoint(),
+    )
+    assert view.verticalScrollBar().value() > before
+    assert view.edit_mode is EditMode.SELECT
+
+
+def test_selection_switches_exclusively_and_shift_extends(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), second_line()])
+    first = view.mapFromScene(QPointF(80, 50))
+    second = view.mapFromScene(QPointF(80, 125))
+
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=first)
+    assert {item.adapter.id for item in view.page_scene.selectedItems()} == {"line-1"}
+    second = view.mapFromScene(QPointF(80, 125))
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=second)
+    assert {item.adapter.id for item in view.page_scene.selectedItems()} == {"line-2"}
+    first = view.mapFromScene(QPointF(80, 50))
+    QTest.mouseClick(
+        view.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        first,
+    )
+    assert {item.adapter.id for item in view.page_scene.selectedItems()} == {
+        "line-1",
+        "line-2",
+    }
+
+    background = view.mapFromScene(QPointF(220, 10))
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=background)
+    assert not view.page_scene.selectedItems()
+    assert not view.overlay.isVisible()
+
+
+def test_whole_line_only_moves_with_dedicated_move_tool(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, stack = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    start = view.mapFromScene(QPointF(80, 50))
+    end = start + QPointF(35, 20).toPoint()
+    before = item.adapter.polygon
+
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), end, delay=20)
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=end)
+    assert item.adapter.polygon == before
+    assert stack.count() == 0
+
+    view.set_edit_mode(EditMode.MOVE_LINE)
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), end, delay=20)
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=end)
+    assert item.adapter.polygon != before
+    assert stack.count() == 1
 
 
 def test_null_page_image_is_reported_instead_of_silent_blank(qtbot) -> None:  # type: ignore[no-untyped-def]

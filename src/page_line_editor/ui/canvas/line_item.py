@@ -40,6 +40,8 @@ class LineGraphicsItem(QGraphicsObject):
         self._drag_before: Geometry | None = None
         self._drag_origin = QPointF()
         self._handles: list[VertexHandle] = []
+        self._whole_line_movable = False
+        self._vertex_editable = True
         self.colors = overlay_colors(theme)
         self.show_polygon = True
         self.show_baseline = True
@@ -48,7 +50,7 @@ class LineGraphicsItem(QGraphicsObject):
             | QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setZValue(2)
 
     @property
@@ -93,6 +95,21 @@ class LineGraphicsItem(QGraphicsObject):
         self.show_baseline = baseline
         self.setVisible(polygon or baseline)
         self.update()
+
+    def set_interaction_mode(
+        self,
+        *,
+        whole_line_movable: bool,
+        vertex_editable: bool,
+    ) -> None:
+        self._whole_line_movable = whole_line_movable
+        self._vertex_editable = vertex_editable
+        self.setCursor(
+            Qt.CursorShape.SizeAllCursor
+            if whole_line_movable
+            else Qt.CursorShape.ArrowCursor
+        )
+        self._rebuild_handles(self.isSelected() and vertex_editable)
 
     def boundingRect(self) -> QRectF:
         points = self._polygon + self._baseline
@@ -165,7 +182,7 @@ class LineGraphicsItem(QGraphicsObject):
             handle.setVisible(False)
             handle.deleteLater()
         self._handles.clear()
-        if not visible:
+        if not visible or not self._vertex_editable:
             return
         for kind, points in (("polygon", self._polygon), ("baseline", self._baseline)):
             for index, point in enumerate(points):
@@ -211,10 +228,19 @@ class LineGraphicsItem(QGraphicsObject):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_before = self.geometry()
-            self._drag_origin = event.scenePos()
+            extend = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if extend and self.isSelected():
+                self.setSelected(False)
+                event.accept()
+                return
+            scene = self.scene()
+            if not extend and scene is not None:
+                scene.clearSelection()
             self.setSelected(True)
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            if self._whole_line_movable:
+                self._drag_before = self.geometry()
+                self._drag_origin = event.scenePos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -236,7 +262,7 @@ class LineGraphicsItem(QGraphicsObject):
 
     def mouseReleaseEvent(self, event) -> None:
         if self._drag_before is not None:
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
             self.finish_vertex_drag("Move line")
             event.accept()
             return

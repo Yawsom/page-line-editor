@@ -325,7 +325,11 @@ class AutoCorrectionWorkflow:
                     line.proposal_state = "applied"
                     line.diff_text = _diff_label(item)
                     line.pre_correction_text = snapshots[state.line_id].text
-                    line.correction_status = item.status.value
+                    line.correction_status = (
+                        "REMOVED"
+                        if item.status.value == "EXTRA" and state.deleted
+                        else item.status.value
+                    )
                 decision = ReviewDecision.APPLIED
             else:
                 # Keep report-only matches visible in the in-app comparison

@@ -57,8 +57,9 @@ def apply_theme(app: QApplication, theme: Theme | str) -> Theme:
         app.setPalette(_dark_palette() if selected is Theme.DARK else _light_palette())
         app.setStyleSheet(
             "QToolBar { spacing: 4px; padding: 4px; }"
-            "QFrame#transcriptionOverlay { border: 1px solid palette(mid); "
-            "border-radius: 8px; }"
+            "QToolBar#toolsToolbar { spacing: 3px; padding: 5px; }"
+            "QToolBar#toolsToolbar QToolButton { padding: 7px; border-radius: 5px; }"
+            "QToolBar#toolsToolbar QToolButton:checked { background: palette(highlight); }"
             "QPushButton { padding: 5px 10px; }"
         )
     return selected

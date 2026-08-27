@@ -6,8 +6,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSettings, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
+from PySide6.QtCore import QSettings, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -139,20 +139,25 @@ class MainWindow(QMainWindow):
         self.mode_group = QActionGroup(self)
         self.mode_group.setExclusive(True)
         mode_specs = (
-            ("Select / Move", EditMode.SELECT, "V"),
-            ("Add Vertex", EditMode.ADD_VERTEX, "A"),
-            ("Delete Vertex", EditMode.DELETE_VERTEX, "D"),
-            ("Replace Polygon", EditMode.REPLACE_POLYGON, "P"),
-            ("Replace Baseline", EditMode.REPLACE_BASELINE, "B"),
+            ("Pan Canvas", EditMode.PAN, "H", "pan.svg"),
+            ("Select / Edit", EditMode.SELECT, "V", "select.svg"),
+            ("Move Whole Line", EditMode.MOVE_LINE, "M", "move.svg"),
+            ("Add Vertex", EditMode.ADD_VERTEX, "A", "add-vertex.svg"),
+            ("Delete Vertex", EditMode.DELETE_VERTEX, "D", "delete-vertex.svg"),
+            ("Replace Polygon", EditMode.REPLACE_POLYGON, "P", "polygon.svg"),
+            ("Replace Baseline", EditMode.REPLACE_BASELINE, "B", "baseline.svg"),
         )
         self.mode_actions: dict[EditMode, QAction] = {}
-        for label, mode, shortcut in mode_specs:
+        icon_directory = Path(__file__).parent / "icons"
+        for label, mode, shortcut, icon_name in mode_specs:
             action = self._action(
                 label,
                 lambda checked=False, value=mode: self.canvas.set_edit_mode(value),
                 shortcut,
+                tooltip=f"{label} ({shortcut})",
                 checkable=True,
             )
+            action.setIcon(QIcon(str(icon_directory / icon_name)))
             self.mode_group.addAction(action)
             self.mode_actions[mode] = action
         self.mode_actions[EditMode.SELECT].setChecked(True)
@@ -193,21 +198,6 @@ class MainWindow(QMainWindow):
         self.view_button = self._toolbar_menu_button(toolbar, "View", self.view_menu)
         toolbar.addWidget(self.view_button)
 
-        self.edit_menu = QMenu("Edit tool", toolbar)
-        self.edit_menu.addActions(self.mode_group.actions())
-        self.edit_tool_button = self._toolbar_menu_button(
-            toolbar, "Select / Move ▾", self.edit_menu
-        )
-        toolbar.addWidget(self.edit_tool_button)
-        for action in self.mode_group.actions():
-            action.triggered.connect(
-                lambda checked=False, selected=action: self.edit_tool_button.setText(
-                    f"{selected.text()} ▾"
-                )
-                if checked
-                else None
-            )
-
         self.correction_menu = QMenu("Automatic correction", toolbar)
         self.correction_menu.addActions((self.correct_page_action, self.correct_batch_action))
         self.correction_button = self._toolbar_menu_button(
@@ -219,6 +209,17 @@ class MainWindow(QMainWindow):
         self.theme_combo.addItems([theme.value for theme in Theme])
         toolbar.addWidget(self.theme_combo)
         self.addToolBar(toolbar)
+
+        self.tools_toolbar = QToolBar("Tools", self)
+        self.tools_toolbar.setObjectName("toolsToolbar")
+        self.tools_toolbar.setMovable(False)
+        self.tools_toolbar.setIconSize(QSize(24, 24))
+        self.tools_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        for index, action in enumerate(self.mode_group.actions()):
+            if index in (3, 5):
+                self.tools_toolbar.addSeparator()
+            self.tools_toolbar.addAction(action)
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, self.tools_toolbar)
 
     @staticmethod
     def _toolbar_menu_button(
@@ -309,15 +310,15 @@ class MainWindow(QMainWindow):
         entries: list[dict[str, object]] = []
         for application in run.applications:
             proposal = application.proposal
-            status = {"MATCH": "MATCHED", "EXTRA": "REMOVED"}.get(
-                proposal.status.value,
-                proposal.status.value,
+            removed = proposal.status.value == "EXTRA" and any(
+                state.deleted for state in getattr(proposal, "after", ())
             )
-            corrected = (
-                proposal.after_text
-                if proposal.after_text is not None
-                else "Removed from PAGE XML"
-            )
+            status = "REMOVED" if removed else {
+                "MATCH": "MATCHED",
+            }.get(proposal.status.value, proposal.status.value)
+            corrected = proposal.after_text
+            if corrected is None:
+                corrected = "Removed from PAGE XML" if removed else "Not automatically removed"
             entries.append(
                 {
                     "line_id": proposal.primary_line_id or "",
@@ -341,6 +342,7 @@ class MainWindow(QMainWindow):
         center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
         self.canvas.overlay.set_line(None)
         self.canvas.page_scene.set_page(pixmap, lines)
+        self.canvas.set_edit_mode(self.canvas.edit_mode)
         self.canvas.setTransform(transform)
         self.canvas.centerOn(center)
         if selected_line_id:

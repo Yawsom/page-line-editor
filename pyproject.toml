@@ -33,7 +33,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-page_line_editor = ["pagexml/schemas/*.xsd"]
+page_line_editor = ["pagexml/schemas/*.xsd", "ui/icons/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
