@@ -16,6 +16,8 @@ line. Clicking the polygon interior, border, or baseline selects the same line.
   Light, and Dark themes.
 - Undoable transcription editing and polygon/baseline vertex drag, add, delete,
   whole-line move, and shape replacement.
+- Geometry-scaled transcription editing and in-app correction cards showing the
+  correction above the original PAGE text with MATCHED/OCR/REMOVED-style tags.
 - Geometry guards for minimum vertex counts, image bounds, self-intersections,
   and newly introduced baselines outside their polygons.
 - Toggleable Unicode NFC normalization for manual transcription edits.

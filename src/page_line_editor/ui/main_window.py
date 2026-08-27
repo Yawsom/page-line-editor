@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
 )
@@ -173,21 +175,63 @@ class MainWindow(QMainWindow):
         for action in (
             self.open_action, self.save_action, self.undo_action, self.redo_action,
             self.previous_action, self.next_action, self.zoom_out_action, self.zoom_in_action,
-            self.fit_action, self.rotate_left_action, self.rotate_right_action,
-            self.polygons_action, self.baselines_action, self.diff_action,
+            self.fit_action,
         ):
             toolbar.addAction(action)
         toolbar.addSeparator()
+        self.view_menu = QMenu("View", toolbar)
+        self.view_menu.addActions(
+            (
+                self.rotate_left_action,
+                self.rotate_right_action,
+                self.reset_rotation_action,
+                self.polygons_action,
+                self.baselines_action,
+                self.diff_action,
+            )
+        )
+        self.view_button = self._toolbar_menu_button(toolbar, "View", self.view_menu)
+        toolbar.addWidget(self.view_button)
+
+        self.edit_menu = QMenu("Edit tool", toolbar)
+        self.edit_menu.addActions(self.mode_group.actions())
+        self.edit_tool_button = self._toolbar_menu_button(
+            toolbar, "Select / Move ▾", self.edit_menu
+        )
+        toolbar.addWidget(self.edit_tool_button)
         for action in self.mode_group.actions():
-            toolbar.addAction(action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.correct_page_action)
-        toolbar.addAction(self.correct_batch_action)
+            action.triggered.connect(
+                lambda checked=False, selected=action: self.edit_tool_button.setText(
+                    f"{selected.text()} ▾"
+                )
+                if checked
+                else None
+            )
+
+        self.correction_menu = QMenu("Automatic correction", toolbar)
+        self.correction_menu.addActions((self.correct_page_action, self.correct_batch_action))
+        self.correction_button = self._toolbar_menu_button(
+            toolbar, "Auto-correct ▾", self.correction_menu
+        )
+        toolbar.addWidget(self.correction_button)
         self.theme_combo = QComboBox(toolbar)
         self.theme_combo.setAccessibleName("Application theme")
         self.theme_combo.addItems([theme.value for theme in Theme])
         toolbar.addWidget(self.theme_combo)
         self.addToolBar(toolbar)
+
+    @staticmethod
+    def _toolbar_menu_button(
+        toolbar: QToolBar,
+        text: str,
+        menu: QMenu,
+    ) -> QToolButton:
+        button = QToolButton(toolbar)
+        button.setText(text)
+        button.setMenu(menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        return button
 
     def _connect_signals(self) -> None:
         self.page_list.currentItemChanged.connect(self._page_item_changed)
@@ -207,6 +251,8 @@ class MainWindow(QMainWindow):
         self.review_panel.cancelRequested.connect(self.cancelCorrectionRequested)
         self.review_panel.keepPageRequested.connect(self.keepPageCorrectionsRequested)
         self.review_panel.rejectPageRequested.connect(self.rejectPageCorrectionsRequested)
+        self.review_panel.keepLineRequested.connect(self.keepCorrectionRequested)
+        self.review_panel.rejectLineRequested.connect(self.rejectCorrectionRequested)
 
     def open_project_dialog(self) -> None:
         if not self.confirm_discard_or_save("opening another project"):
@@ -255,6 +301,34 @@ class MainWindow(QMainWindow):
         self.undo_stack.clear()
         self.undo_stack.setClean()
         self._update_status()
+
+    def set_correction_review(self, run: Any | None) -> None:
+        if run is None:
+            self.review_panel.clear_corrections()
+            return
+        entries: list[dict[str, object]] = []
+        for application in run.applications:
+            proposal = application.proposal
+            status = {"MATCH": "MATCHED", "EXTRA": "REMOVED"}.get(
+                proposal.status.value,
+                proposal.status.value,
+            )
+            corrected = (
+                proposal.after_text
+                if proposal.after_text is not None
+                else "Removed from PAGE XML"
+            )
+            entries.append(
+                {
+                    "line_id": proposal.primary_line_id or "",
+                    "status": status,
+                    "corrected": corrected or "—",
+                    "original": proposal.before_text or "—",
+                    "decision": application.decision.value,
+                    "actionable": proposal.actionable,
+                }
+            )
+        self.review_panel.set_corrections(entries)
 
     def refresh_lines(self, lines, *, selected_line_id: str | None = None) -> None:
         """Rebuild line overlays while preserving the current view and undo stack."""

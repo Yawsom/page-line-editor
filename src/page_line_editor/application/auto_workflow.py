@@ -56,6 +56,7 @@ class DocumentLineState:
     proposal_state: str
     diff_text: str
     pre_correction_text: str | None
+    correction_status: str
 
     @classmethod
     def capture(cls, line: TextLine) -> DocumentLineState:
@@ -69,6 +70,7 @@ class DocumentLineState:
             proposal_state=line.proposal_state,
             diff_text=line.diff_text,
             pre_correction_text=line.pre_correction_text,
+            correction_status=line.correction_status,
         )
 
     def restore(self, line: TextLine) -> None:
@@ -80,6 +82,7 @@ class DocumentLineState:
         line.proposal_state = self.proposal_state
         line.diff_text = self.diff_text
         line.pre_correction_text = self.pre_correction_text
+        line.correction_status = self.correction_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,7 +325,18 @@ class AutoCorrectionWorkflow:
                     line.proposal_state = "applied"
                     line.diff_text = _diff_label(item)
                     line.pre_correction_text = snapshots[state.line_id].text
+                    line.correction_status = item.status.value
                 decision = ReviewDecision.APPLIED
+            else:
+                # Keep report-only matches visible in the in-app comparison
+                # without making the PAGE document dirty.
+                for line_id in item.line_ids:
+                    line = document.line_by_id(line_id)
+                    line.proposal_id = item.proposal_id
+                    line.proposal_state = "matched"
+                    line.diff_text = _diff_label(item)
+                    line.pre_correction_text = snapshots[line_id].text
+                    line.correction_status = item.status.value
             applications.append(AppliedProposal(item, before, decision))
         if any(item.decision is ReviewDecision.APPLIED for item in applications):
             document.revision += 1

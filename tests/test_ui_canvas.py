@@ -112,6 +112,37 @@ def test_handles_ignore_view_transform(qtbot) -> None:  # type: ignore[no-untype
     assert item._handles[0].boundingRect() == original_bounds
 
 
+def test_vertex_handle_remains_live_through_drag(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, stack = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    item.setSelected(True)
+    handle = item._handles[0]
+    start = view.mapFromScene(handle.scenePos())
+    destination = start + QPointF(24, 18).toPoint()
+
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), destination, delay=20)
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=destination)
+
+    assert item.adapter.polygon[0] != (20.0, 20.0)
+    assert stack.count() == 1
+    assert not handle.isVisible() or handle in item._handles
+
+
+def test_editor_font_and_width_follow_selected_geometry(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    item.setSelected(True)
+    view.set_zoom(1.0)
+    small_font = view.overlay.editor.font().pixelSize()
+    view.set_zoom(2.0)
+    large_font = view.overlay.editor.font().pixelSize()
+    line_rect = view.mapFromScene(item.sceneBoundingRect()).boundingRect()
+
+    assert large_font > small_font
+    assert view.overlay.width() == max(280, line_rect.width())
+
+
 def test_left_drag_on_page_background_pans_canvas(qtbot) -> None:  # type: ignore[no-untyped-def]
     view, _ = make_view(qtbot)
     view.set_zoom(3.0)

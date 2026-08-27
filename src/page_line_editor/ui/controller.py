@@ -192,6 +192,7 @@ class EditorController(QObject):
         self.window.load_page(pair.image_path, document.active_lines, page_payload=pair)
         self._show_validation(document)
         run = self.runs.get(document.source_path)
+        self.window.set_correction_review(run)
         if run is not None and document.is_dirty:
             self._push_run_command(run)
 
@@ -218,6 +219,8 @@ class EditorController(QObject):
             line.proposal_state = ""
             line.diff_text = ""
             line.pre_correction_text = None
+            line.correction_status = ""
+        self.window.set_correction_review(None)
         self._refresh_document()
         self._show_validation_report(result.validation)
         self.window.statusBar().showMessage(
@@ -315,6 +318,7 @@ class EditorController(QObject):
             return
         self.runs[document.source_path] = run
         self._push_run_command(run)
+        self.window.set_correction_review(run)
         self.window.statusBar().showMessage(
             f"Correction applied in memory · audit: {run.audit.run_directory}", 8000
         )
@@ -421,6 +425,7 @@ class EditorController(QObject):
         if document is None:
             return
         self.window.refresh_lines(document.active_lines, selected_line_id=selected_line_id)
+        self.window.set_correction_review(self.runs.get(document.source_path))
 
     def _sync_clean_state(self) -> None:
         document = self.session.document

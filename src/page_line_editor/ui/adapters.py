@@ -125,6 +125,17 @@ class LineAdapter:
         value = _read(self.source, ("proposal_state", "correction_state", "status"), "")
         return str(getattr(value, "value", value) or "").lower()
 
+    @property
+    def correction_status(self) -> str:
+        value = _read(self.source, ("correction_status",), "")
+        status = str(getattr(value, "value", value) or "").upper()
+        return {"MATCH": "MATCHED", "EXTRA": "REMOVED"}.get(status, status)
+
+    @property
+    def pre_correction_text(self) -> str:
+        value = _read(self.source, ("pre_correction_text", "original_text"), "")
+        return str(value or "")
+
     def set_text(self, value: str) -> None:
         self._text = value
         self._write(("current_text", "text"), value, "text")

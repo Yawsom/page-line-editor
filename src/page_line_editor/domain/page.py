@@ -28,6 +28,7 @@ class TextLine:
     proposal_state: str = ""
     diff_text: str = ""
     pre_correction_text: str | None = None
+    correction_status: str = ""
     original_deleted: bool = False
     deleted: bool = False
 

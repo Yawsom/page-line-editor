@@ -174,8 +174,22 @@ class LineGraphicsItem(QGraphicsObject):
                 self._handles.append(handle)
 
     def _sync_handles(self) -> None:
-        if self.isSelected():
+        if not self.isSelected():
+            return
+        expected = [
+            (kind, index, point)
+            for kind, points in (("polygon", self._polygon), ("baseline", self._baseline))
+            for index, point in enumerate(points)
+        ]
+        current_keys = [(handle.kind, handle.index) for handle in self._handles]
+        expected_keys = [(kind, index) for kind, index, _point in expected]
+        if current_keys != expected_keys:
             self._rebuild_handles(True)
+            return
+        # Preserve the live handle object during a drag. Rebuilding it here
+        # deletes the item which owns Qt's mouse grab after the first move.
+        for handle, (_kind, _index, point) in zip(self._handles, expected, strict=True):
+            handle.setPos(*point)
 
     def begin_vertex_drag(self, kind: str, index: int) -> None:
         del kind, index

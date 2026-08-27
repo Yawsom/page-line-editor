@@ -180,8 +180,8 @@ class PageCanvasView(QGraphicsView):
             return
         if item is None or not self.overlay.isVisible():
             return
-        bottom_left = self.mapFromScene(item.sceneBoundingRect().bottomLeft())
-        self.overlay.anchor_below(bottom_left, self.viewport().width())
+        line_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
+        self.overlay.anchor_below(line_rect, self.viewport().width())
 
     def ensure_editor_visible(self) -> None:
         item = self.page_scene.selected_line_item()
@@ -203,6 +203,7 @@ class PageCanvasView(QGraphicsView):
         adapter = item.adapter if item is not None else None
         self.overlay.set_line(adapter)
         if item is not None:
+            self.update_overlay_position()
             self.ensure_editor_visible()
         self.selectedLineChanged.emit(adapter)
 

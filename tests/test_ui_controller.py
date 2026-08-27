@@ -117,6 +117,7 @@ def test_controller_opens_folders_auto_applies_in_memory_and_rejects(qtbot, tmp_
     assert line.text == "جديد"
     assert line.proposal_state == "applied"
     assert line.diff_text == "قديم → جديد"
+    assert line.correction_status == "OCR"
     assert document.is_dirty
     assert project.xml_path.read_bytes() == project.original_xml
     # Auto correction immediately keeps its own audit copy/report, while the
@@ -129,6 +130,7 @@ def test_controller_opens_folders_auto_applies_in_memory_and_rejects(qtbot, tmp_
     controller.reject_line("line-1")
     assert line.text == "قديم"
     assert line.proposal_state == ""
+    assert line.correction_status == ""
     assert not document.is_dirty
     assert project.xml_path.read_bytes() == project.original_xml
     assert not list(project.paths.audit_directory.glob("manual/*/originals/1r.xml"))
