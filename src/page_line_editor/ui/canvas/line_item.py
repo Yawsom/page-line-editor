@@ -93,7 +93,9 @@ class LineGraphicsItem(QGraphicsObject):
     def set_overlay_visibility(self, polygon: bool, baseline: bool) -> None:
         self.show_polygon = polygon
         self.show_baseline = baseline
-        self.setVisible(polygon or baseline)
+        # Keep the logical line hit area active in transcription mode even
+        # when its visual geometry is intentionally hidden.
+        self.setVisible(True)
         self.update()
 
     def set_interaction_mode(
@@ -102,6 +104,7 @@ class LineGraphicsItem(QGraphicsObject):
         whole_line_movable: bool,
         vertex_editable: bool,
     ) -> None:
+        self.cancel_active_drag()
         self._whole_line_movable = whole_line_movable
         self._vertex_editable = vertex_editable
         self.setCursor(
@@ -110,6 +113,19 @@ class LineGraphicsItem(QGraphicsObject):
             else Qt.CursorShape.ArrowCursor
         )
         self._rebuild_handles(self.isSelected() and vertex_editable)
+
+    def cancel_active_drag(self) -> None:
+        """Restore an interrupted vertex/line gesture before changing tools."""
+
+        before = self._drag_before
+        self._drag_before = None
+        if before is not None and before != self.geometry():
+            self.set_geometry(*before)
+        self.setCursor(
+            Qt.CursorShape.SizeAllCursor
+            if self._whole_line_movable
+            else Qt.CursorShape.ArrowCursor
+        )
 
     def boundingRect(self) -> QRectF:
         points = self._polygon + self._baseline
@@ -121,7 +137,7 @@ class LineGraphicsItem(QGraphicsObject):
 
     def shape(self) -> QPainterPath:
         result = QPainterPath()
-        if self.show_polygon and self._polygon:
+        if self._polygon:
             polygon_path = _path(self._polygon, close=True)
             stroker = QPainterPathStroker()
             stroker.setWidth(self._hit_width)
@@ -130,7 +146,7 @@ class LineGraphicsItem(QGraphicsObject):
             # a literal hole in the selectable hit area.
             result = result.united(polygon_path)
             result = result.united(stroker.createStroke(polygon_path))
-        if self.show_baseline and self._baseline:
+        if self._baseline:
             stroker = QPainterPathStroker()
             stroker.setWidth(self._hit_width)
             result = result.united(stroker.createStroke(_path(self._baseline)))

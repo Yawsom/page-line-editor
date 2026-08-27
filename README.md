@@ -17,8 +17,12 @@ line. Clicking the polygon interior, border, or baseline selects the same line.
 - Undoable transcription editing and polygon/baseline vertex drag, add, delete,
   whole-line move, and shape replacement.
 - Geometry-scaled transcription editing and in-app correction cards showing the
-  correction as a green addition above the red original PAGE text, with
-  color-coded MATCHED/OCR/REMOVED-style tags.
+  correction as a green addition above the red original PAGE text. Added
+  characters are highlighted, removed characters are struck through, and
+  MATCHED/OCR/REMOVED-style tags are color coded.
+- Dedicated geometry and transcription work modes. Transcription mode hides
+  polygons, baselines, vertices, and geometry-only tools while preserving line
+  selection and the anchored editor.
 - Left-side vector tool palette separating canvas pan, line selection/vertex
   editing, whole-line movement, and vertex/shape operations.
 - Geometry guards for minimum vertex counts, image bounds, self-intersections,
@@ -83,6 +87,19 @@ extends or toggles a multi-selection. Use **Pan Canvas** to drag the page and
 **Move Whole Line** for the deliberately separate, less-common geometry move.
 Holding Ctrl/Command temporarily pans with the left mouse button from any tool,
 and middle-drag also pans. Use Ctrl/Command + wheel to zoom.
+
+Toggle **Transcription Mode** in the top toolbar, or press Ctrl/Command+T, to
+switch between geometry assessment and distraction-free transcription review.
+In transcription mode the line regions remain clickable even though their
+geometry is hidden. Right-click a line for its context menu, including text
+editing, isolated selection, centering, geometry-tool shortcuts, and copying the
+PAGE `TextLine` ID.
+
+An active automatic correction shows a character-level comparison until it is
+accepted or rejected. **Keep** accepts the already-applied correction and then
+collapses the line to a neutral transcription row; **Reject** restores the
+original line and also removes the comparison. Lines that have not been through
+automatic correction are neutral from the outset.
 
 The historical command-line workflow remains available during the transition:
 

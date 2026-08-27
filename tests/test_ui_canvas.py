@@ -8,7 +8,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QPixmap, QUndoStack
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QGraphicsItem
 
 from page_line_editor.ui.canvas import EditMode, ImageLoadError, PageCanvasView
@@ -80,6 +80,9 @@ def test_selection_shows_rtl_editor_below_geometry(qtbot) -> None:  # type: igno
     assert view.overlay.y() >= line_bottom
     assert view.overlay.editor.layoutDirection() == Qt.LayoutDirection.RightToLeft
     assert view.overlay.editor.toPlainText() == "السلام عليكم"
+    assert not view.overlay.deletion_row.isVisible()
+    assert not view.overlay.status_badge.isVisible()
+    assert not view.overlay.addition_gutter.text().strip()
 
 
 def test_geometry_edit_is_one_undo_step(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -150,7 +153,7 @@ def test_editor_font_and_width_follow_selected_geometry(qtbot) -> None:  # type:
 
     assert large_font > small_font
     assert view.overlay.width() == max(320, line_rect.width())
-    assert view.overlay.editor.maxLength() >= len(view.overlay.editor.text())
+    assert "\n" not in view.overlay.editor.text()
     view.overlay.editor.setPlainText("سطر\nواحد")
     assert view.overlay.editor.toPlainText() == "سطر واحد"
 
@@ -244,6 +247,31 @@ def test_whole_line_only_moves_with_dedicated_move_tool(qtbot) -> None:  # type:
     QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=end)
     assert item.adapter.polygon != before
     assert stack.count() == 1
+
+
+def test_line_context_menu_exposes_extensible_actions(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    menu = view.build_line_context_menu(item)
+    qtbot.addWidget(menu)
+    actions = {action.text(): action for action in menu.actions() if action.text()}
+
+    assert {
+        "Edit transcription",
+        "Select only",
+        "Center on line",
+        "Use Move Whole Line tool",
+        "Use Add Vertex tool",
+        "Copy TextLine ID",
+    } <= set(actions)
+    actions["Edit transcription"].trigger()
+    assert view.page_scene.selected_line_item() is item
+    assert view.overlay.editor.textCursor().hasSelection()
+
+    spy = QSignalSpy(view.editModeRequested)
+    actions["Use Move Whole Line tool"].trigger()
+    assert spy.count() == 1
+    assert spy.at(0)[0] is EditMode.MOVE_LINE
 
 
 def test_null_page_image_is_reported_instead_of_silent_blank(qtbot) -> None:  # type: ignore[no-untyped-def]

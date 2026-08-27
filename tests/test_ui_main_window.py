@@ -7,9 +7,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
-from PySide6.QtTest import QSignalSpy
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QKeySequence, QPixmap
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QFrame, QLabel
 
 from page_line_editor.ui.canvas import EditMode
@@ -30,11 +30,11 @@ class SampleLine:
     pre_correction_text: str = "قديم"
 
 
-def make_window(qtbot):  # type: ignore[no-untyped-def]
+def make_window(qtbot, line: SampleLine | None = None):  # type: ignore[no-untyped-def]
     window = MainWindow()
     pixmap = QPixmap(220, 120)
     pixmap.fill(Qt.GlobalColor.white)
-    window.load_page(pixmap, [SampleLine()])
+    window.load_page(pixmap, [line or SampleLine()])
     qtbot.addWidget(window)
     window.show()
     return window
@@ -63,6 +63,87 @@ def test_left_tool_palette_switches_canvas_interaction(qtbot) -> None:  # type: 
     assert window.mode_actions[EditMode.MOVE_LINE].isChecked()
 
 
+@pytest.mark.parametrize("mode", [mode for mode in EditMode if mode is not EditMode.SELECT])
+def test_every_line_tool_switches_cleanly_back_to_select(
+    qtbot,
+    mode: EditMode,
+) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    tool_button = window.tools_toolbar.widgetForAction(window.mode_actions[mode])
+    select_button = window.tools_toolbar.widgetForAction(
+        window.mode_actions[EditMode.SELECT]
+    )
+    assert tool_button is not None and select_button is not None
+
+    QTest.mouseClick(tool_button, Qt.MouseButton.LeftButton)
+    assert window.canvas.edit_mode is mode
+    QTest.mouseClick(select_button, Qt.MouseButton.LeftButton)
+    assert window.canvas.edit_mode is EditMode.SELECT
+    position = window.canvas.mapFromScene(QPointF(80, 45))
+    QTest.mouseClick(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=position)
+    assert window.canvas.page_scene.selected_line_item() is not None
+    assert window.canvas.page_scene.selected_line_item()._handles  # type: ignore[union-attr]
+
+
+def test_actual_tool_buttons_edit_then_recover_from_interrupted_pan(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    canvas = window.canvas
+    item = canvas.page_scene.line_items[0]
+    item.setSelected(True)
+
+    add_button = window.tools_toolbar.widgetForAction(
+        window.mode_actions[EditMode.ADD_VERTEX]
+    )
+    select_button = window.tools_toolbar.widgetForAction(
+        window.mode_actions[EditMode.SELECT]
+    )
+    pan_button = window.tools_toolbar.widgetForAction(window.mode_actions[EditMode.PAN])
+    assert add_button is not None and select_button is not None and pan_button is not None
+
+    before_count = len(item.adapter.polygon)
+    QTest.mouseClick(add_button, Qt.MouseButton.LeftButton)
+    add_position = canvas.mapFromScene(QPointF(100, 10))
+    QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=add_position)
+    assert len(item.adapter.polygon) == before_count + 1
+
+    QTest.mouseClick(pan_button, Qt.MouseButton.LeftButton)
+    canvas._panning = True
+    canvas._pan_button = Qt.MouseButton.LeftButton
+    assert canvas._panning
+    window.mode_actions[EditMode.SELECT].trigger()
+    assert canvas.edit_mode is EditMode.SELECT
+    assert not canvas._panning
+    line_position = canvas.mapFromScene(QPointF(80, 45))
+    QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=line_position)
+    assert canvas.page_scene.selected_line_item() is item
+    assert item._handles
+    window.undo_stack.setClean()
+
+
+def test_geometry_and_transcription_modes_toggle_with_shortcuts(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    item = window.canvas.page_scene.line_items[0]
+    item.setSelected(True)
+    shortcuts = {
+        shortcut.toString(QKeySequence.SequenceFormat.PortableText)
+        for shortcut in window.transcription_mode_action.shortcuts()
+    }
+    assert {"Ctrl+T", "Meta+T"} <= shortcuts
+
+    window.transcription_mode_action.trigger()
+    assert window.transcription_mode_action.isChecked()
+    assert not window.tools_toolbar.isVisible()
+    assert not item.show_polygon and not item.show_baseline
+    assert item.isVisible() and not item.shape().isEmpty()
+    assert not item._handles
+
+    window.transcription_mode_action.trigger()
+    assert not window.transcription_mode_action.isChecked()
+    assert window.tools_toolbar.isVisible()
+    assert item.show_polygon and item.show_baseline
+    assert window.canvas.edit_mode is EditMode.SELECT
+
+
 def test_text_commit_and_undo_marks_window_dirty(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
     item = window.canvas.page_scene.line_items[0]
@@ -86,7 +167,7 @@ def test_applied_correction_has_diff_and_revert_signal(
     assert window.canvas.overlay.diff_label.text() == "قديم → جديد"
     assert window.canvas.overlay.status_badge.text() == "OCR"
     assert window.canvas.overlay.corrected_label.text() == "قديم"
-    assert window.canvas.overlay.original_label.text() == "قديم"
+    assert "قديم" in window.canvas.overlay.original_label.text()
     assert window.canvas.overlay.addition_gutter.text() == "+"
     assert window.canvas.overlay.deletion_gutter.text() == "−"
     assert any(
@@ -102,6 +183,25 @@ def test_applied_correction_has_diff_and_revert_signal(
     window.canvas.overlay.reject_button.click()
     assert spy.count() == 1
     assert spy.at(0)[0] == "arabic-line"
+
+
+def test_character_diff_and_accepted_neutral_line(qtbot) -> None:  # type: ignore[no-untyped-def]
+    line = SampleLine(text="جديد", pre_correction_text="قديم")
+    window = make_window(qtbot, line)
+    item = window.canvas.page_scene.line_items[0]
+    item.setSelected(True)
+
+    assert window.canvas.overlay.editor.extraSelections()
+    assert "line-through" in window.canvas.overlay.original_label.text()
+    assert window.canvas.overlay.deletion_row.isVisible()
+    assert window.canvas.overlay.status_badge.isVisible()
+
+    line.proposal_state = "accepted"
+    window.canvas.overlay.refresh()
+    assert not window.canvas.overlay.editor.extraSelections()
+    assert not window.canvas.overlay.deletion_row.isVisible()
+    assert not window.canvas.overlay.status_badge.isVisible()
+    assert not window.canvas.overlay.addition_gutter.text().strip()
 
 
 def test_review_panel_shows_correction_above_original_with_removed_tag(
@@ -127,7 +227,8 @@ def test_review_panel_shows_correction_above_original_with_removed_tag(
     labels = [label.text() for label in card.findChildren(QLabel)]
     assert "REMOVED" in labels
     assert "Removed from PAGE XML" in labels
-    assert "نص زائد" in labels
+    assert any("نص&nbsp;زائد" in label for label in labels)
+    assert any("line-through" in label for label in labels)
     addition = card.findChild(QFrame, "reviewAdditionRow")
     deletion = card.findChild(QFrame, "reviewDeletionRow")
     assert addition is not None and deletion is not None
@@ -162,6 +263,28 @@ def test_report_only_extra_is_not_mislabeled_as_removed(qtbot) -> None:  # type:
     assert "EXTRA" in labels
     assert "REMOVED" not in labels
     assert "Not automatically removed" in labels
+
+
+def test_kept_review_record_collapses_to_neutral_line(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    proposal = SimpleNamespace(
+        primary_line_id="arabic-line",
+        status=SimpleNamespace(value="OCR"),
+        after_text="جديد",
+        before_text="قديم",
+        actionable=True,
+        after=(SimpleNamespace(deleted=False),),
+    )
+    application = SimpleNamespace(
+        proposal=proposal,
+        decision=SimpleNamespace(value="kept"),
+    )
+    window.set_correction_review(SimpleNamespace(applications=(application,)))
+    card = window.review_panel.findChild(QFrame, "correctionReviewCard")
+
+    assert card is not None
+    assert card.findChild(QFrame, "reviewNeutralRow") is not None
+    assert card.findChild(QFrame, "reviewDeletionRow") is None
 
 
 def test_theme_switch_preserves_active_editor_buffer(qtbot) -> None:  # type: ignore[no-untyped-def]

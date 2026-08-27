@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..diff_markup import compare_text, rich_diff_text
+
 
 class ReviewPanel(QWidget):
     autoCorrectPageRequested = Signal()
@@ -162,12 +164,32 @@ class ReviewPanel(QWidget):
             decision_label.setObjectName("reviewDecision")
             header_layout.addWidget(decision_label)
         layout.addWidget(header)
-        corrected = self._rtl_text(str(entry.get("corrected", "—")), card)
+        corrected_text = str(entry.get("corrected", "—"))
+        original_text = str(entry.get("original", "—"))
+        show_diff = bool(entry.get("actionable")) and decision not in {
+            "kept",
+            "rejected",
+        }
+        corrected = self._rtl_text(corrected_text, card)
         corrected.setObjectName("reviewCorrectedText")
-        original = self._rtl_text(str(entry.get("original", "—")), card)
-        original.setObjectName("reviewOriginalText")
-        layout.addWidget(self._review_diff_row("reviewAdditionRow", "+", corrected))
-        layout.addWidget(self._review_diff_row("reviewDeletionRow", "−", original))
+        if show_diff:
+            original = self._rtl_text(original_text, card)
+            original.setObjectName("reviewOriginalText")
+            difference = compare_text(original_text, str(entry.get("after_text", "")))
+            dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
+            if not bool(entry.get("removed")):
+                corrected.setTextFormat(Qt.TextFormat.RichText)
+                corrected.setText(
+                    rich_diff_text(difference.after, side="after", dark=dark)
+                )
+            original.setTextFormat(Qt.TextFormat.RichText)
+            original.setText(
+                rich_diff_text(difference.before, side="before", dark=dark)
+            )
+            layout.addWidget(self._review_diff_row("reviewAdditionRow", "+", corrected))
+            layout.addWidget(self._review_diff_row("reviewDeletionRow", "−", original))
+        else:
+            layout.addWidget(self._review_diff_row("reviewNeutralRow", " ", corrected))
 
         line_id = str(entry.get("line_id", ""))
         if bool(entry.get("actionable")) and line_id and decision not in {
@@ -239,6 +261,9 @@ class ReviewPanel(QWidget):
             f"QFrame#reviewDeletionRow {{ background: {del_line}; "
             f"border-top: 1px solid {border}; }}"
             f"QLabel#reviewDeletionRowGutter {{ background: {del_gutter}; color: {text}; }}"
+            f"QFrame#reviewNeutralRow {{ background: {header}; "
+            f"border-top: 1px solid {border}; }}"
+            f"QLabel#reviewNeutralRowGutter {{ background: {header}; color: {text}; }}"
             f"QLabel#reviewCorrectedText, QLabel#reviewOriginalText {{ color: {text}; }}"
         )
         badge_colors = {

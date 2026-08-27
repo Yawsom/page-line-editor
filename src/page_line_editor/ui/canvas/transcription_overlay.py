@@ -2,38 +2,87 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QRect, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QKeyEvent, QPalette
+from typing import Any, cast
+
+from PySide6.QtCore import QEvent, QMimeData, QRect, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFontMetrics,
+    QKeyEvent,
+    QPalette,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
+    QPlainTextEdit,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ..adapters import LineAdapter
+from ..diff_markup import compare_text, rich_diff_text
 
 
-class TranscriptionEdit(QLineEdit):
-    """One-line editor with the former plain-text API kept for integrations."""
+class TranscriptionEdit(QPlainTextEdit):
+    """Single-line plain-text editor with non-destructive addition highlights."""
 
     commitRequested = Signal()
     cancelRequested = Signal()
 
-    def setPlainText(self, value: str) -> None:  # noqa: N802 - compatibility API
-        self.setText(value.replace("\n", " "))
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.document().setDocumentMargin(0)
 
-    def toPlainText(self) -> str:  # noqa: N802 - compatibility API
-        return self.text()
+    def setPlainText(self, value: str) -> None:  # noqa: N802 - Qt API refinement
+        super().setPlainText(value.replace("\r", " ").replace("\n", " "))
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setCursorPosition(self, position: int) -> None:  # noqa: N802 - compatibility API
+        cursor = self.textCursor()
+        cursor.setPosition(max(0, min(position, len(self.toPlainText()))))
+        self.setTextCursor(cursor)
+
+    def setAlignment(self, alignment: Qt.AlignmentFlag) -> None:  # noqa: N802
+        cursor = self.textCursor()
+        position = cursor.position()
+        cursor.select(QTextCursor.SelectionType.Document)
+        block_format = QTextBlockFormat()
+        block_format.setAlignment(alignment)
+        cursor.mergeBlockFormat(block_format)
+        cursor.clearSelection()
+        cursor.setPosition(min(position, len(self.toPlainText())))
+        self.setTextCursor(cursor)
+
+    def set_addition_ranges(
+        self,
+        ranges: tuple[tuple[int, int], ...],
+        color: QColor,
+    ) -> None:
+        selections: list[QTextEdit.ExtraSelection] = []
+        for start, end in ranges:
+            selection = cast(Any, QTextEdit.ExtraSelection())
+            selection.cursor = self.textCursor()
+            selection.cursor.setPosition(start)
+            selection.cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            selection.format = QTextCharFormat()
+            selection.format.setBackground(color)
+            selection.format.setFontWeight(600)
+            selections.append(selection)
+        self.setExtraSelections(selections)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        modifiers = event.modifiers()
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and modifiers & (
-            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
-        ):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.commitRequested.emit()
             event.accept()
             return
@@ -42,6 +91,9 @@ class TranscriptionEdit(QLineEdit):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def insertFromMimeData(self, source: QMimeData) -> None:  # noqa: N802 - Qt override
+        self.insertPlainText(source.text().replace("\r", " ").replace("\n", " "))
 
 
 class TranscriptionOverlay(QFrame):
@@ -58,7 +110,9 @@ class TranscriptionOverlay(QFrame):
         self.setMaximumWidth(1100)
         self._line: LineAdapter | None = None
         self._committed_text = ""
+        self._original_text = ""
         self._diff_visible = True
+        self._comparison_active = False
 
         self.diff_card = QFrame(self)
         self.diff_card.setObjectName("correctionComparison")
@@ -97,6 +151,7 @@ class TranscriptionOverlay(QFrame):
         self.original_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
+        self.original_label.setTextFormat(Qt.TextFormat.RichText)
         self.original_label.setWordWrap(False)
         self.deletion_gutter = QLabel("−", self.diff_card)
         self.deletion_row = self._diff_row(
@@ -134,6 +189,7 @@ class TranscriptionOverlay(QFrame):
 
         self.editor.commitRequested.connect(self.commit)
         self.editor.cancelRequested.connect(self.cancel)
+        self.editor.textChanged.connect(self._update_diff_markup)
         self.keep_button.clicked.connect(self._keep)
         self.reject_button.clicked.connect(self._reject)
         self._apply_diff_style()
@@ -165,19 +221,24 @@ class TranscriptionOverlay(QFrame):
             self.hide()
             return
         self._committed_text = line.text
+        self._original_text = line.pre_correction_text or line.text
+        reviewable = line.proposal_state in {"proposed", "applied", "pending"}
+        self._comparison_active = reviewable and bool(
+            line.correction_status or line.diff_text
+        )
         self.line_label.setText(f"TextLine · {line.id}")
         self.editor.setPlainText(line.text)
         self.editor.setCursorPosition(len(self.editor.text()))
         self.diff_label.setText(line.diff_text)
         self.status_badge.setText(line.correction_status)
-        self.original_label.setText(line.pre_correction_text or "—")
-        reviewable = line.proposal_state in {"proposed", "applied", "pending"}
         self.keep_button.setVisible(reviewable)
         self.reject_button.setVisible(reviewable)
         self.button_frame.setVisible(reviewable)
-        has_comparison = bool(line.correction_status or line.diff_text)
-        self.status_badge.setVisible(has_comparison)
-        self.deletion_row.setVisible(self._diff_visible and has_comparison)
+        show_diff = self._diff_visible and self._comparison_active
+        self.status_badge.setVisible(show_diff)
+        self.deletion_row.setVisible(show_diff)
+        self.addition_gutter.setText("+" if show_diff else " ")
+        self._update_diff_markup()
         self._apply_diff_style()
         self.adjustSize()
         self.show()
@@ -189,8 +250,12 @@ class TranscriptionOverlay(QFrame):
 
     def set_diff_visible(self, visible: bool) -> None:
         self._diff_visible = visible
-        has_comparison = bool(self.status_badge.text() or self.diff_label.text())
-        self.deletion_row.setVisible(visible and has_comparison)
+        show_diff = visible and self._comparison_active
+        self.status_badge.setVisible(show_diff)
+        self.deletion_row.setVisible(show_diff)
+        self.addition_gutter.setText("+" if show_diff else " ")
+        self._update_diff_markup()
+        self._apply_diff_style()
         self.adjustSize()
 
     def set_text_direction(self, direction: Qt.LayoutDirection) -> None:
@@ -233,7 +298,7 @@ class TranscriptionOverlay(QFrame):
         metrics = QFontMetrics(editor_font)
         widest = max(
             metrics.horizontalAdvance(self.editor.text()),
-            metrics.horizontalAdvance(self.original_label.text()),
+            metrics.horizontalAdvance(self._original_text),
             1,
         )
         if widest > content_width:
@@ -250,16 +315,20 @@ class TranscriptionOverlay(QFrame):
 
     def _apply_diff_style(self) -> None:
         dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
+        show_diff = self._comparison_active and self._diff_visible
         if dark:
             border, header = "#30363d", "#161b22"
             add_line, add_gutter = "#12261b", "#1f3d2a"
             del_line, del_gutter = "#321c20", "#512329"
-            text = "#e6edf3"
+            text, neutral = "#e6edf3", "#0d1117"
         else:
             border, header = "#d0d7de", "#f6f8fa"
             add_line, add_gutter = "#e6ffec", "#ccffd8"
             del_line, del_gutter = "#ffebe9", "#ffd7d5"
-            text = "#1f2328"
+            text, neutral = "#1f2328", "#ffffff"
+        if not show_diff:
+            add_line = neutral
+            add_gutter = header
         self.diff_card.setStyleSheet(
             f"QFrame#correctionComparison {{ border: 1px solid {border}; "
             "border-radius: 6px; }"
@@ -270,7 +339,7 @@ class TranscriptionOverlay(QFrame):
             f"QFrame#diffDeletionRow {{ background: {del_line}; "
             f"border-top: 1px solid {border}; }}"
             f"QLabel#diffDeletionRowGutter {{ background: {del_gutter}; color: {text}; }}"
-            "QLineEdit#transcriptionEditor { background: transparent; border: none; "
+            "QPlainTextEdit#transcriptionEditor { background: transparent; border: none; "
             f"color: {text}; padding: 4px 8px; }}"
             f"QLabel#originalText {{ color: {text}; padding: 4px 8px; }}"
         )
@@ -301,6 +370,22 @@ class TranscriptionOverlay(QFrame):
             "border-radius: 9px; font-weight: 700; padding: 2px 8px;"
         )
 
+    def _update_diff_markup(self) -> None:
+        show_diff = self._comparison_active and self._diff_visible
+        if not show_diff:
+            self.original_label.setTextFormat(Qt.TextFormat.PlainText)
+            self.original_label.setText(self._original_text or "—")
+            self.editor.set_addition_ranges((), QColor())
+            return
+        difference = compare_text(self._original_text, self.editor.toPlainText())
+        dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
+        self.original_label.setTextFormat(Qt.TextFormat.RichText)
+        self.original_label.setText(
+            rich_diff_text(difference.before, side="before", dark=dark)
+        )
+        highlight = QColor(46, 160, 67, 100) if dark else QColor("#abf2bc")
+        self.editor.set_addition_ranges(difference.addition_ranges, highlight)
+
     def _keep(self) -> None:
         if self._line is not None:
             self.keepRequested.emit(self._line.id)
@@ -314,4 +399,5 @@ class TranscriptionOverlay(QFrame):
         if event.type() == QEvent.Type.PaletteChange:
             self.setAutoFillBackground(True)
             self._apply_diff_style()
+            self._update_diff_markup()
         return result

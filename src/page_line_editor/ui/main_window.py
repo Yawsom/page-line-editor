@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self._current_page_payload: Any = None
         self._project_paths: ProjectPaths | None = None
         self._theme = Theme.SYSTEM
+        self._transcription_mode = False
         self._build_docks()
         self._build_actions()
         self._build_toolbar()
@@ -135,6 +136,15 @@ class MainWindow(QMainWindow):
         self.diff_action.setChecked(True)
         self.normalize_action = self._action("Unicode NFC", lambda: None, checkable=True)
         self.normalize_action.setChecked(True)
+        self.transcription_mode_action = self._action(
+            "Transcription Mode",
+            self.set_transcription_mode,
+            tooltip="Hide geometry and focus on transcription (Ctrl/Cmd+T)",
+            checkable=True,
+        )
+        self.transcription_mode_action.setShortcuts(
+            (QKeySequence("Ctrl+T"), QKeySequence("Meta+T"))
+        )
 
         self.mode_group = QActionGroup(self)
         self.mode_group.setExclusive(True)
@@ -197,6 +207,7 @@ class MainWindow(QMainWindow):
         )
         self.view_button = self._toolbar_menu_button(toolbar, "View", self.view_menu)
         toolbar.addWidget(self.view_button)
+        toolbar.addAction(self.transcription_mode_action)
 
         self.correction_menu = QMenu("Automatic correction", toolbar)
         self.correction_menu.addActions((self.correct_page_action, self.correct_batch_action))
@@ -240,6 +251,7 @@ class MainWindow(QMainWindow):
         self.canvas.overlay.keepRequested.connect(self.keepCorrectionRequested)
         self.canvas.overlay.rejectRequested.connect(self.rejectCorrectionRequested)
         self.canvas.lineGeometryChanged.connect(self.lineGeometryChanged)
+        self.canvas.editModeRequested.connect(self._activate_edit_mode)
         self.canvas.geometryEditRejected.connect(
             lambda message: self.statusBar().showMessage(f"Edit rejected: {message}", 6000)
         )
@@ -319,14 +331,18 @@ class MainWindow(QMainWindow):
             corrected = proposal.after_text
             if corrected is None:
                 corrected = "Removed from PAGE XML" if removed else "Not automatically removed"
+            if application.decision.value == "rejected":
+                corrected = proposal.before_text or "—"
             entries.append(
                 {
                     "line_id": proposal.primary_line_id or "",
                     "status": status,
                     "corrected": corrected or "—",
+                    "after_text": proposal.after_text or "",
                     "original": proposal.before_text or "—",
                     "decision": application.decision.value,
                     "actionable": proposal.actionable,
+                    "removed": removed,
                 }
             )
         self.review_panel.set_corrections(entries)
@@ -378,6 +394,24 @@ class MainWindow(QMainWindow):
         self._theme = apply_theme(QApplication.instance(), theme)  # type: ignore[arg-type]
         self.canvas.page_scene.set_theme(self._theme)
         QSettings().setValue("ui/theme", self._theme.value)
+
+    def set_transcription_mode(self, enabled: bool) -> None:
+        self._transcription_mode = bool(enabled)
+        self.canvas.set_transcription_focus(self._transcription_mode)
+        self.mode_actions[EditMode.SELECT].trigger()
+        for mode, action in self.mode_actions.items():
+            action.setEnabled(
+                not self._transcription_mode or mode in {EditMode.PAN, EditMode.SELECT}
+            )
+        self.tools_toolbar.setVisible(not self._transcription_mode)
+        self._update_overlays()
+        label = "Transcription mode" if self._transcription_mode else "Geometry mode"
+        self.statusBar().showMessage(f"{label} · Ctrl/Cmd+T to switch", 4000)
+
+    def _activate_edit_mode(self, mode: EditMode | str) -> None:
+        if self._transcription_mode:
+            self.transcription_mode_action.trigger()
+        self.mode_actions[EditMode(mode)].trigger()
 
     def set_correction_progress(self, value: int | None, status: str = "") -> None:
         self.review_panel.set_correction_progress(value, status)
@@ -441,7 +475,8 @@ class MainWindow(QMainWindow):
 
     def _update_overlays(self) -> None:
         self.canvas.set_overlay_visibility(
-            self.polygons_action.isChecked(), self.baselines_action.isChecked()
+            self.polygons_action.isChecked() and not self._transcription_mode,
+            self.baselines_action.isChecked() and not self._transcription_mode,
         )
 
     def _update_diff(self) -> None:

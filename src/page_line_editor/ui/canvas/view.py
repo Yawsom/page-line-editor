@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
+    QContextMenuEvent,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -16,7 +17,14 @@ from PySide6.QtGui import (
     QUndoStack,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsView
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsPathItem,
+    QGraphicsPixmapItem,
+    QGraphicsView,
+    QMenu,
+    QWidget,
+)
 
 from page_line_editor.domain.geometry import GeometryError, Point, Polygon, Polyline
 
@@ -59,6 +67,7 @@ class PageCanvasView(QGraphicsView):
     selectedLineChanged = Signal(object)
     lineGeometryChanged = Signal(str, object, object)
     geometryEditRejected = Signal(str)
+    editModeRequested = Signal(object)
 
     def __init__(self, parent=None) -> None:
         self.page_scene = PageScene(parent)
@@ -78,12 +87,14 @@ class PageCanvasView(QGraphicsView):
         self._zoom = 1.0
         self._rotation = 0
         self._mode = EditMode.SELECT
+        self._transcription_focus = False
         self._undo_stack: QUndoStack | None = None
         self._panning = False
         self._pan_button: Qt.MouseButton | None = None
         self._pan_last = QPoint()
         self._replacement_points: list[PointTuple] = []
         self._replacement_preview: QGraphicsPathItem | None = None
+        self._context_menu: QMenu | None = None
 
         self.overlay = TranscriptionOverlay(self.viewport())
         self.page_scene.lineSelected.connect(self._line_selected)
@@ -107,10 +118,15 @@ class PageCanvasView(QGraphicsView):
         self._undo_stack = stack
 
     def set_edit_mode(self, mode: EditMode | str) -> None:
+        self._cancel_pan()
         self.cancel_replacement()
         self._mode = EditMode(mode)
         self._apply_item_interactions()
         self._restore_tool_cursor()
+
+    def set_transcription_focus(self, enabled: bool) -> None:
+        self._transcription_focus = enabled
+        self._apply_item_interactions()
 
     def set_page(self, image, lines, on_change=None) -> None:
         self.overlay.set_line(None)
@@ -268,6 +284,8 @@ class PageCanvasView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._panning:
+            self._cancel_pan()
         pan_modifier = event.modifiers() & (
             Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
         )
@@ -328,11 +346,23 @@ class PageCanvasView(QGraphicsView):
         self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
         event.accept()
 
+    def _cancel_pan(self) -> None:
+        self._panning = False
+        self._pan_button = None
+        grabber = QWidget.mouseGrabber()
+        if grabber in {self, self.viewport()}:
+            grabber.releaseMouse()
+        self._restore_tool_cursor()
+
     def _apply_item_interactions(self) -> None:
         for item in self.page_scene.line_items:
             item.set_interaction_mode(
-                whole_line_movable=self._mode is EditMode.MOVE_LINE,
-                vertex_editable=self._mode is EditMode.SELECT,
+                whole_line_movable=(
+                    self._mode is EditMode.MOVE_LINE and not self._transcription_focus
+                ),
+                vertex_editable=(
+                    self._mode is EditMode.SELECT and not self._transcription_focus
+                ),
             )
 
     def _restore_tool_cursor(self) -> None:
@@ -367,6 +397,60 @@ class PageCanvasView(QGraphicsView):
         if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta) and not self._panning:
             self._restore_tool_cursor()
         super().keyReleaseEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        self._cancel_pan()
+        for item in self.page_scene.line_items:
+            item.cancel_active_drag()
+        super().focusOutEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        clicked = self.itemAt(event.pos())
+        item = clicked.owner if isinstance(clicked, VertexHandle) else clicked
+        if not isinstance(item, LineGraphicsItem):
+            super().contextMenuEvent(event)
+            return
+        self._context_menu = self.build_line_context_menu(item)
+        self._context_menu.aboutToHide.connect(self._clear_context_menu)
+        self._context_menu.popup(event.globalPos())
+        event.accept()
+
+    def _clear_context_menu(self) -> None:
+        menu = self._context_menu
+        self._context_menu = None
+        if menu is not None:
+            menu.deleteLater()
+
+    def build_line_context_menu(self, item: LineGraphicsItem) -> QMenu:
+        """Create the extensible right-click command surface for one TextLine."""
+
+        menu = QMenu(self)
+        edit_text = menu.addAction("Edit transcription")
+        edit_text.triggered.connect(lambda: self._focus_line_editor(item))
+        select_only = menu.addAction("Select only")
+        select_only.triggered.connect(lambda: self._select_only(item))
+        center = menu.addAction("Center on line")
+        center.triggered.connect(lambda: self.centerOn(item))
+        menu.addSeparator()
+        move = menu.addAction("Use Move Whole Line tool")
+        move.triggered.connect(lambda: self.editModeRequested.emit(EditMode.MOVE_LINE))
+        add_vertex = menu.addAction("Use Add Vertex tool")
+        add_vertex.triggered.connect(lambda: self.editModeRequested.emit(EditMode.ADD_VERTEX))
+        menu.addSeparator()
+        copy_id = menu.addAction("Copy TextLine ID")
+        copy_id.triggered.connect(
+            lambda: QApplication.clipboard().setText(item.adapter.id)
+        )
+        return menu
+
+    def _select_only(self, item: LineGraphicsItem) -> None:
+        self.page_scene.clearSelection()
+        item.setSelected(True)
+
+    def _focus_line_editor(self, item: LineGraphicsItem) -> None:
+        self._select_only(item)
+        self.overlay.editor.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.overlay.editor.selectAll()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
