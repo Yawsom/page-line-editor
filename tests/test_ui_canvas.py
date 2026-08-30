@@ -115,6 +115,37 @@ def test_minimum_vertex_constraints_and_replace_shape(
     assert item.adapter.baseline == ((35.0, 70.0), (100.0, 72.0), (165.0, 70.0))
 
 
+def test_closed_triangle_cannot_delete_below_three_vertices(
+    qtbot,
+) -> None:  # type: ignore[no-untyped-def]
+    view = PageCanvasView()
+    stack = QUndoStack(view)
+    view.set_undo_stack(stack)
+    pixmap = QPixmap(240, 160)
+    pixmap.fill(Qt.GlobalColor.white)
+    closed = SampleLine(
+        id="line-1",
+        text="مغلق",
+        polygon=((20, 20), (80, 20), (50, 70), (20, 20)),
+        baseline=((30, 60), (70, 60)),
+    )
+    view.set_page(pixmap, [closed])
+    qtbot.addWidget(view)
+    item = view.page_scene.line_items[0]
+    assert item.delete_vertex("polygon", 1) is False
+    assert stack.count() == 0
+
+
+def test_geometry_guards_use_page_metadata_size(
+    qtbot,
+) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    view.set_page_size(50, 40)
+    item = view.page_scene.line_items[0]
+    issues = view._geometry_issues(item.geometry())
+    assert any("PAGE image" in issue for issue in issues)
+
+
 def test_handles_ignore_view_transform(qtbot) -> None:  # type: ignore[no-untyped-def]
     view, _ = make_view(qtbot)
     item = view.page_scene.line_items[0]

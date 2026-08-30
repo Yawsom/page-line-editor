@@ -296,9 +296,16 @@ class LineGraphicsItem(QGraphicsObject):
         before = self.geometry()
         polygon, baseline = map(list, before)
         target = polygon if kind == "polygon" else baseline
-        minimum = 3 if kind == "polygon" else 2
-        if len(target) <= minimum or not 0 <= index < len(target):
-            return False
+        if kind == "polygon":
+            distinct = (
+                len(target) - 1 if len(target) > 1 and target[0] == target[-1] else len(target)
+            )
+            minimum = 3
+            if distinct <= minimum or not 0 <= index < len(target):
+                return False
+        else:
+            if len(target) <= 2 or not 0 <= index < len(target):
+                return False
         del target[index]
         after = (tuple(polygon), tuple(baseline))
         self.geometryEditRequested.emit(before, after, "Delete vertex")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -29,7 +30,10 @@ class TextDiff:
         )
 
 
-def compare_text(before: str, after: str) -> TextDiff:
+def compare_text(before: str, after: str, *, normalize_nfc: bool = True) -> TextDiff:
+    if normalize_nfc:
+        before = unicodedata.normalize("NFC", before)
+        after = unicodedata.normalize("NFC", after)
     before_segments: list[DiffSegment] = []
     after_segments: list[DiffSegment] = []
     matcher = SequenceMatcher(None, before, after, autojunk=False)

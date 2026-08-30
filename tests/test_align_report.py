@@ -87,12 +87,21 @@ class AlignmentRegressionTests(unittest.TestCase):
         self.assertNotIn("l1", ids)
         self.assertEqual(stats["deleted"], 1)
 
-    def test_confirmed_noise_extra_is_deleted_by_default(self):
+    def test_confirmed_noise_extra_is_preserved_unless_opted_in(self):
         source = PAGE_XML.format(first_text="1")
         noise_line = xml_line("l1", "1")
         noise_line.noise = True
         results = alignment.dp_align([noise_line], [])
         tree, stats = self.rewrite(source, results)
+        ids = {
+            line.get("id")
+            for line in tree.findall(".//p:TextLine", alignment.PAGE_NS)
+        }
+        self.assertIn("l1", ids)
+        self.assertEqual(stats["deleted"], 0)
+        self.assertEqual(stats["preserved_extras"], 1)
+
+        tree, stats = self.rewrite(source, results, delete_noise_extras=True)
         ids = {
             line.get("id")
             for line in tree.findall(".//p:TextLine", alignment.PAGE_NS)
@@ -120,6 +129,58 @@ class AlignmentRegressionTests(unittest.TestCase):
             unicode_el = region.find("p:TextEquiv/p:Unicode", alignment.PAGE_NS)
             self.assertIsNotNone(unicode_el)
             self.assertIsNone(unicode_el.text)
+
+
+    def test_cli_ground_truth_pairs_casefolded_folio(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        source = Path(temp_dir.name) / "truth.docx"
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("\u200f[93V]\u200e")
+        document.add_paragraph("سطر")
+        document.save(source)
+        pages = alignment.parse_ground_truth(source)
+        self.assertIn("93v", pages)
+        self.assertEqual(pages["93v"][0].text, "سطر")
+
+    def test_duplicate_xml_folios_fail(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        xml_dir = Path(temp_dir.name)
+        xml_dir.joinpath("a.xml").write_text(PAGE_XML.format(first_text="a"), encoding="utf-8")
+        xml_dir.joinpath("b.xml").write_text(PAGE_XML.format(first_text="b"), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            alignment.load_xml_pages(xml_dir)
+
+    def test_main_refuses_to_write_into_xml_dir(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+        xml_dir = root / "xml"
+        xml_dir.mkdir()
+        xml_dir.joinpath("1r.xml").write_text(PAGE_XML.format(first_text="a"), encoding="utf-8")
+        gt = root / "gt.docx"
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("[1r]")
+        document.add_paragraph("نص")
+        document.save(gt)
+        code = alignment.main(
+            [
+                "--gt",
+                str(gt),
+                "--xml-dir",
+                str(xml_dir),
+                "--out",
+                str(root / "reports"),
+                "--corrected-dir",
+                str(xml_dir),
+            ]
+        )
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

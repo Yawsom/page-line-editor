@@ -97,6 +97,8 @@ class PageCanvasView(QGraphicsView):
         self._replacement_points: list[PointTuple] = []
         self._replacement_preview: QGraphicsPathItem | None = None
         self._context_menu: QMenu | None = None
+        self._page_width: int | None = None
+        self._page_height: int | None = None
 
         self.overlay = TranscriptionOverlay(self.viewport())
         self.overlay.navigateLineRequested.connect(
@@ -143,6 +145,11 @@ class PageCanvasView(QGraphicsView):
         self._apply_item_interactions()
         self.reset_rotation()
         self.fit_page()
+
+    def set_page_size(self, width: int | None, height: int | None) -> None:
+        """PAGE imageWidth/Height used by geometry guards, not pixmap pixels."""
+        self._page_width = width
+        self._page_height = height
 
     def set_overlay_visibility(self, polygons: bool, baselines: bool) -> None:
         self.page_scene.set_overlay_visibility(polygons, baselines)
@@ -293,7 +300,9 @@ class PageCanvasView(QGraphicsView):
             return
 
         def notify(adapter: LineAdapter) -> None:
-            item.sync_from_adapter()
+            current = self.page_scene.line_item(adapter.id)
+            if current is not None:
+                current.sync_from_adapter()
             self.lineGeometryChanged.emit(adapter.id, adapter.polygon, adapter.baseline)
             self.update_overlay_position()
 
@@ -318,12 +327,15 @@ class PageCanvasView(QGraphicsView):
                 issues.add(str(error))
         if polygon.is_self_intersecting():
             issues.add("Polygon cannot self-intersect")
-        image = self.page_scene.image_item
-        if image is not None:
-            width, height = image.pixmap().width(), image.pixmap().height()
+        width, height = self._page_width, self._page_height
+        if width is None or height is None:
+            image = self.page_scene.image_item
+            if image is not None:
+                width, height = image.pixmap().width(), image.pixmap().height()
+        if width is not None and height is not None:
             points = list(polygon.points) + list(baseline.points if baseline else ())
             if any(not (0 <= point.x < width and 0 <= point.y < height) for point in points):
-                issues.add("Geometry must remain inside the image")
+                issues.add("Geometry must remain inside the PAGE image")
         if baseline is not None and any(
             not polygon.contains(point) for point in baseline.points
         ):

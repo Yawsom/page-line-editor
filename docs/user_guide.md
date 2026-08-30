@@ -74,7 +74,7 @@ message.
 | Rotate left | `[` |
 | Rotate right | `]` |
 | Reset rotation | View menu |
-| Toggle polygons, baselines, or correction diff | View menu |
+| Toggle polygons, baselines, correction diff, or Unicode NFC normalization | View menu |
 | Change System/Light/Dark theme | Theme selector in the top toolbar |
 
 Rotation changes only the view; it does not rewrite PAGE coordinates.
@@ -113,6 +113,19 @@ Explicit correction-engine settings may still opt into automatic bulk deletion.
 After a correction is accepted or rejected, its inline diff is hidden and the
 line becomes neutral. The audit directory retains the untouched original XML,
 JSON and HTML reports, and the decision manifest.
+
+Automatic correction will not start over unsaved edits or a page with an
+unfinished correction review. If a source XML changes while folder correction
+is running, that page is skipped so the newer saved version is never replaced.
+
+## Command-line correction reports
+
+`align_report.py` runs in report-only mode by default. To write corrected XML,
+provide an explicit `--corrected-dir`; it must be different from the source XML
+folder. EXTRA lines are retained unless deletion is explicitly enabled with
+`--delete-noise-extras` (high-confidence noise only) or
+`--delete-all-extras` (all EXTRA lines). Keep reports, corrected output, and
+source XML in separate directories.
 
 ## Important data behavior
 

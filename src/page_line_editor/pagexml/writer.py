@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from datetime import UTC, datetime
 
@@ -9,16 +10,61 @@ from lxml import etree  # type: ignore[import-untyped]
 
 from page_line_editor.domain.page import PageDocument, TextLine
 
+READING_ORDER_RE = re.compile(r"readingOrder\s*\{index:\s*\d+;\}")
+
 
 class PageWriteError(ValueError):
     pass
 
 
-def _find_line(tree: etree._ElementTree, line: TextLine) -> etree._Element:
-    matches = tree.xpath(line.xml_path)
-    if len(matches) != 1 or not isinstance(matches[0], etree._Element):
-        raise PageWriteError(f"Cannot resolve source element for line {line.id!r}")
+def _text_line_elements(tree: etree._ElementTree, namespace: str) -> list[etree._Element]:
+    return list(tree.iter(f"{{{namespace}}}TextLine"))
+
+
+def _find_line(tree: etree._ElementTree, line: TextLine, namespace: str) -> etree._Element:
+    """Resolve a TextLine by unique ``@id``. Positional getpath() is not identity."""
+    line_id = line.id
+    if not line_id:
+        raise PageWriteError("Cannot resolve a TextLine with an empty id")
+    matches = [
+        element
+        for element in _text_line_elements(tree, namespace)
+        if element.get("id") == line_id
+    ]
+    if len(matches) != 1:
+        if not matches:
+            raise PageWriteError(f"Cannot resolve source element for line {line_id!r}")
+        raise PageWriteError(f"Duplicate TextLine id {line_id!r} cannot be saved")
     return matches[0]
+
+
+def refresh_xml_paths(document: PageDocument, tree: etree._ElementTree | None = None) -> None:
+    """Recompute cached positional paths after a structural save.
+
+    ``xml_path`` is lxml ``getpath()`` and shifts when earlier siblings are
+    removed. The writer looks up by ``@id``; these caches must still match the
+    retained tree so later diagnostics never point at a different line.
+    """
+    candidate = tree if tree is not None else document.xml_tree
+    namespace = document.namespace
+    by_id: dict[str, list[etree._Element]] = {}
+    for element in _text_line_elements(candidate, namespace):
+        element_id = element.get("id")
+        if element_id:
+            by_id.setdefault(element_id, []).append(element)
+    region_qname = f"{{{namespace}}}TextRegion"
+    for region in document.regions:
+        region_matches = [
+            element for element in candidate.iter(region_qname) if element.get("id") == region.id
+        ]
+        if len(region_matches) == 1:
+            region.xml_path = candidate.getpath(region_matches[0])
+        for line in region.lines:
+            if line.deleted:
+                continue
+            matches = by_id.get(line.id, [])
+            if len(matches) == 1:
+                line.xml_path = candidate.getpath(matches[0])
 
 
 def _ensure_baseline(line_element: etree._Element, namespace: str) -> etree._Element:
@@ -33,6 +79,61 @@ def _ensure_baseline(line_element: etree._Element, namespace: str) -> etree._Ele
     insert_at = line_element.index(coords) + 1 if coords is not None else 0
     line_element.insert(insert_at, baseline)
     return baseline
+
+
+def _set_reading_order(element: etree._Element, index: int) -> None:
+    replacement = f"readingOrder {{index:{index};}}"
+    custom = element.get("custom") or ""
+    if READING_ORDER_RE.search(custom):
+        custom = READING_ORDER_RE.sub(replacement, custom)
+    else:
+        custom = f"{custom} {replacement}".strip()
+    element.set("custom", custom)
+
+
+def _sync_line_text(line_element: etree._Element, namespace: str, text: str) -> None:
+    """Write Unicode and drop stale Word/Glyph/PlainText so Transkribus shows the edit."""
+
+    def q(name: str) -> str:
+        return f"{{{namespace}}}{name}"
+
+    for child in list(line_element):
+        local = etree.QName(child).localname
+        if local in {"Word", "Glyph"}:
+            line_element.remove(child)
+    unicode_element = _ensure_unicode(line_element, namespace)
+    unicode_element.text = text
+    text_equiv = unicode_element.getparent()
+    if text_equiv is not None:
+        plain_text = text_equiv.find(q("PlainText"))
+        if plain_text is not None:
+            text_equiv.remove(plain_text)
+
+
+def _refresh_dirty_regions(
+    tree: etree._ElementTree, namespace: str, dirty_region_ids: set[str]
+) -> None:
+    if not dirty_region_ids:
+        return
+
+    def q(name: str) -> str:
+        return f"{{{namespace}}}{name}"
+
+    for region_idx, region in enumerate(tree.iter(q("TextRegion"))):
+        if region.get("id") not in dirty_region_ids:
+            continue
+        for text_equiv in region.findall(q("TextEquiv")):
+            unicode_element = text_equiv.find(q("Unicode"))
+            if unicode_element is not None:
+                unicode_element.text = None
+            plain_text = text_equiv.find(q("PlainText"))
+            if plain_text is not None:
+                plain_text.text = None
+        for index, line_element in enumerate(region.findall(q("TextLine"))):
+            _set_reading_order(line_element, index)
+        custom = region.get("custom") or ""
+        if READING_ORDER_RE.search(custom):
+            _set_reading_order(region, region_idx)
 
 
 def _ensure_unicode(line_element: etree._Element, namespace: str) -> etree._Element:
@@ -70,10 +171,11 @@ def apply_document(
     def q(name: str) -> str:
         return f"{{{namespace}}}{name}"
 
+    dirty_region_ids = {line.region_id for line in document.lines if line.is_dirty}
     for line in document.lines:
         if not line.is_dirty:
             continue
-        element = _find_line(candidate, line)
+        element = _find_line(candidate, line, namespace)
         if "deleted" in line.dirty_fields and line.deleted:
             parent = element.getparent()
             if parent is None:
@@ -94,7 +196,10 @@ def apply_document(
             else:
                 _ensure_baseline(element, namespace).set("points", line.baseline.to_page())
         if "text" in line.dirty_fields:
-            _ensure_unicode(element, namespace).text = line.text
+            _sync_line_text(element, namespace, line.text)
+        changed = True
+    if dirty_region_ids:
+        _refresh_dirty_regions(candidate, namespace, dirty_region_ids)
         changed = True
     if changed:
         metadata = candidate.getroot().find(q("Metadata"))

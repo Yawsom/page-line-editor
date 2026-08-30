@@ -9,7 +9,7 @@ from pathlib import Path
 
 from page_line_editor.domain.page import PageDocument
 from page_line_editor.pagexml.validator import ValidationReport, validate_xml
-from page_line_editor.pagexml.writer import build_candidate
+from page_line_editor.pagexml.writer import PageWriteError, build_candidate, refresh_xml_paths
 
 from .history_service import HistoryService
 
@@ -37,7 +37,15 @@ class SaveService:
         self.history = HistoryService(history_directory)
 
     def save(self, document: PageDocument) -> SaveResult:
-        candidate, candidate_tree = build_candidate(document)
+        text_edited_ids = tuple(
+            line.id
+            for line in document.lines
+            if "text" in line.dirty_fields and not line.deleted
+        )
+        try:
+            candidate, candidate_tree = build_candidate(document)
+        except PageWriteError as exc:
+            raise SaveError(f"Could not build PAGE XML: {exc}") from exc
         validation = validate_xml(candidate)
         if not validation.can_save:
             raise ValidationFailed(validation)
@@ -69,4 +77,11 @@ class SaveService:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
         document.mark_clean(xml_tree=candidate_tree)
+        for line_id in text_edited_ids:
+            try:
+                document.line_by_id(line_id).has_word_content = False
+            except KeyError:
+                # A future compound operation may delete a line after editing it.
+                continue
+        refresh_xml_paths(document)
         return SaveResult(source, backup, validation, len(candidate))

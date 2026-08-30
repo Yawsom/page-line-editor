@@ -20,6 +20,10 @@ GUIDE = Path(__file__).parents[1] / "docs" / "user_guide.md"
         "Down selects the next",
         "| Accept selected change | Enter/Return",
         "| Reject selected change | Backspace",
+        "Unicode NFC normalization",
+        "--corrected-dir",
+        "--delete-noise-extras",
+        "--delete-all-extras",
     ),
 )
 def test_user_guide_tracks_user_tools_and_shortcuts(documented_control: str) -> None:

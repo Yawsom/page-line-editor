@@ -34,6 +34,12 @@ reports/**
 correction_history/
 **/correction_history/
 *.page-editor.json
+manifest.json
+**/manifest.json
+*.html
+!docs/
+!docs/**
+!docs/**/*.html
 
 # Build/test artefacts
 .pytest_cache/

@@ -14,8 +14,13 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 
-from page_line_editor.pagexml.parser import PAGE_2013_NAMESPACE
-from page_line_editor.ui.controller import EditorController
+from page_line_editor.pagexml.parser import PAGE_2013_NAMESPACE, parse_page
+from page_line_editor.ui.controller import (
+    EditorController,
+    _BatchProposal,
+    _BatchResult,
+    _source_digest,
+)
 from page_line_editor.ui.main_window import MainWindow
 from page_line_editor.ui.panels import ProjectPaths
 
@@ -138,6 +143,11 @@ def test_controller_opens_folders_auto_applies_in_memory_and_rejects(qtbot, tmp_
     assert project.xml_path.read_bytes() == project.original_xml
     assert not list(project.paths.audit_directory.glob("manual/*/originals/1r.xml"))
 
+    controller.window.undo_stack.undo()
+    assert line.text == "جديد"
+    controller.window.undo_stack.redo()
+    assert line.text == "قديم"
+
 
 def test_controller_explicit_save_writes_correction_and_exact_manual_backup(
     qtbot, tmp_path: Path
@@ -157,6 +167,7 @@ def test_controller_explicit_save_writes_correction_and_exact_manual_backup(
     assert controller.session.document is not None
     assert not controller.session.document.is_dirty
     assert controller.window.undo_stack.isClean()
+    assert controller.window.undo_stack.count() == 0
 
 
 def test_accepting_pending_extra_removes_geometry_and_saved_xml(
@@ -194,3 +205,66 @@ def test_accepting_pending_extra_removes_geometry_and_saved_xml(
         ".//p:TextLine[@id='line-1']",
         namespaces={"p": PAGE_2013_NAMESPACE},
     )
+
+
+def test_page_auto_correct_refuses_dirty_document(qtbot, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    project = _project(tmp_path)
+    controller = _open_controller(qtbot, project)
+    document = controller.session.document
+    assert document is not None
+    document.line_by_id("line-1").text = "edited"
+    errors: list[str] = []
+    controller._error = lambda title, message: errors.append(title)  # type: ignore[method-assign]
+    controller.auto_correct_page()
+    assert errors == ["Save or discard current changes"]
+    assert controller._current_run() is None
+
+
+def test_batch_result_does_not_replace_xml_saved_while_worker_ran(
+    qtbot, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    project = _project(tmp_path)
+    controller = _open_controller(qtbot, project)
+    live = controller.session.document
+    pair = controller.session.current_pair
+    assert live is not None and pair is not None
+    assert controller.ground_truth is not None
+
+    worker_document = parse_page(project.xml_path)
+    worker_document.image_path = pair.image_path
+    proposal = controller.workflow.propose(worker_document, controller.ground_truth)
+    source_digest = _source_digest(project.xml_path)
+
+    project.xml_path.write_bytes(_page_xml("saved while batch ran"))
+    controller._apply_batch_proposals(
+        _BatchResult(
+            (_BatchProposal(pair, worker_document, proposal, source_digest),)
+        )
+    )
+
+    assert controller.session.document is live
+    assert controller.documents[project.xml_path] is live
+    assert project.xml_path not in controller.runs
+    assert _saved_unicode(project.xml_path) == "saved while batch ran"
+
+
+def test_page_review_ignores_report_only_matches(
+    qtbot, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    project = _project(tmp_path)
+    ground_truth = Document()
+    ground_truth.add_paragraph("[1r]")
+    ground_truth.add_paragraph("قديم")
+    assert project.paths.ground_truth_path is not None
+    ground_truth.save(project.paths.ground_truth_path)
+    controller = _open_controller(qtbot, project)
+    _complete_current_page_correction(controller)
+    before = controller.window.undo_stack.count()
+
+    controller.keep_line("line-1")
+    controller.reject_line("line-1")
+    controller.keep_page()
+    controller.reject_page()
+
+    assert controller.window.undo_stack.count() == before
+    assert controller.window.undo_stack.isClean()

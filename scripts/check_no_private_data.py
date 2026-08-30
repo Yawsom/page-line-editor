@@ -17,8 +17,10 @@ PRIVATE_SUFFIXES = {
     ".tiff",
 }
 PRIVATE_PARTS = {"correction_history", "backups"}
-GENERATED_NAMES = {"alignment.json", "index.html"}
+GENERATED_NAMES = {"alignment.json", "index.html", "manifest.json"}
+GENERATED_SUFFIXES = {".html"}
 DATA_DIRS = {"ground_truth", "transcribed_xml", "corrected_xml", "reports"}
+ALLOWED_ROOTS = {"docs"}
 
 
 def tracked_files() -> list[str]:
@@ -32,13 +34,20 @@ def tracked_files() -> list[str]:
 
 def violation(path_text: str) -> str | None:
     path = PurePosixPath(path_text)
+    if path.parts and path.parts[0] in ALLOWED_ROOTS:
+        return None
     lower_suffix = path.suffix.lower()
     if lower_suffix in PRIVATE_SUFFIXES:
         return f"private data extension {lower_suffix}"
     if PRIVATE_PARTS.intersection(path.parts):
         return "correction history or backup path"
-    if path.name.lower() in GENERATED_NAMES:
+    name = path.name.lower()
+    if name in GENERATED_NAMES:
         return "generated correction report"
+    if name.endswith(".page-editor.json"):
+        return "generated editor project file"
+    if lower_suffix in GENERATED_SUFFIXES:
+        return f"generated artefact {lower_suffix}"
     if path.parts and path.parts[0] in DATA_DIRS and path.name != ".gitkeep":
         return "content inside a private/generated data directory"
     return None

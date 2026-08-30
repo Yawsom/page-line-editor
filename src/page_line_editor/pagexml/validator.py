@@ -176,12 +176,22 @@ def _semantic_issues(tree: etree._ElementTree) -> list[ValidationIssue]:
         )
         if width is not None and height is not None:
             for point in geometries:
-                if not (0 <= point.x < width and 0 <= point.y < height):
+                if point.x < 0 or point.y < 0 or point.x > width or point.y > height:
                     issues.append(
                         ValidationIssue(
                             "line.geometry.bounds",
                             f"Point {point.x},{point.y} is outside the {width}x{height} page",
                             line_id=line_id,
+                        )
+                    )
+                    break
+                if point.x == width or point.y == height:
+                    issues.append(
+                        ValidationIssue(
+                            "line.geometry.edge",
+                            f"Point {point.x},{point.y} sits on the PAGE image edge",
+                            Severity.WARNING,
+                            line_id,
                         )
                     )
                     break
@@ -249,18 +259,31 @@ def _semantic_issues(tree: etree._ElementTree) -> list[ValidationIssue]:
                     line_id=region_id,
                 )
             )
-        if (
+        outside = (
             width is not None
             and height is not None
             and any(
-                not (0 <= point.x < width and 0 <= point.y < height) for point in polygon.points
+                point.x < 0 or point.y < 0 or point.x > width or point.y > height
+                for point in polygon.points
             )
-        ):
+        )
+        if outside:
             issues.append(
                 ValidationIssue(
                     "region.geometry.bounds",
                     f"TextRegion geometry is outside the {width}x{height} page",
                     line_id=region_id,
+                )
+            )
+        elif width is not None and height is not None and any(
+            point.x == width or point.y == height for point in polygon.points
+        ):
+            issues.append(
+                ValidationIssue(
+                    "region.geometry.edge",
+                    "TextRegion geometry sits on the PAGE image edge",
+                    Severity.WARNING,
+                    region_id,
                 )
             )
     return issues

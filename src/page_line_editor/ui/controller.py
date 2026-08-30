@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from page_line_editor.application.auto_workflow import (
     AutoCorrectionWorkflow,
     DocumentLineState,
     PageAutoCorrectionRun,
+    ReviewDecision,
 )
 from page_line_editor.application.ground_truth import GroundTruthBook
 from page_line_editor.application.history_service import DocumentHistory
@@ -77,7 +79,11 @@ class _DocumentStateCommand(QUndoCommand):
 
     def _restore(self, states: tuple[DocumentLineState, ...]) -> None:
         for state in states:
-            state.restore(self.document.line_by_id(state.line_id))
+            try:
+                line = self.document.line_by_id(state.line_id)
+            except KeyError:
+                continue
+            state.restore(line)
         self.document.revision += 1
         self.notify()
 
@@ -88,17 +94,87 @@ class _DocumentStateCommand(QUndoCommand):
         self._restore(self.before)
 
 
+class _ReviewDecisionCommand(QUndoCommand):
+    """Keep/Reject as an undoable step, including EXTRA tombstones and run decisions."""
+
+    def __init__(
+        self,
+        run: PageAutoCorrectionRun,
+        action: str,
+        line_ids: tuple[str, ...],
+        notify: Callable[[], None],
+        label: str,
+    ) -> None:
+        super().__init__(label)
+        self.run = run
+        self.action = action
+        self.line_ids = line_ids
+        self.notify = notify
+        snapshots: list[tuple[str, ReviewDecision, tuple[DocumentLineState, ...]]] = []
+        seen: set[str] = set()
+        for line_id in line_ids:
+            application = run.application_for_line(line_id)
+            if application.proposal.proposal_id in seen:
+                continue
+            seen.add(application.proposal.proposal_id)
+            states = tuple(
+                DocumentLineState.capture(run.document.line_by_id(affected))
+                for affected in application.proposal.line_ids
+            )
+            snapshots.append((application.proposal.proposal_id, application.decision, states))
+        self._snapshots = tuple(snapshots)
+
+    def redo(self) -> None:
+        for line_id in self.line_ids:
+            if self.action == "keep":
+                self.run.keep_line(line_id)
+            else:
+                self.run.reject_line(line_id)
+        self.notify()
+
+    def undo(self) -> None:
+        by_proposal = {item.proposal.proposal_id: item for item in self.run.applications}
+        for proposal_id, decision, states in self._snapshots:
+            application = by_proposal[proposal_id]
+            for state in states:
+                try:
+                    state.restore(self.run.document.line_by_id(state.line_id))
+                except KeyError:
+                    continue
+            application.decision = decision
+        self.run.document.revision += 1
+        self.run._write_manifest()
+        self.notify()
+
+
 @dataclass(frozen=True, slots=True)
 class _BatchProposal:
     pair: PagePair
     document: PageDocument
     proposal: PageCorrectionProposal
+    source_digest: str
 
 
 @dataclass(frozen=True, slots=True)
 class _BatchResult:
     proposals: tuple[_BatchProposal, ...]
     errors: tuple[str, ...] = ()
+    cancelled: bool = False
+
+
+def _source_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _parse_page_snapshot(path: Path) -> tuple[PageDocument, str]:
+    """Parse a disk snapshot whose bytes remained stable throughout parsing."""
+    for _attempt in range(3):
+        before = _source_digest(path)
+        document = parse_page(path)
+        after = _source_digest(path)
+        if before == after:
+            return document, after
+    raise RuntimeError(f"{path.name} changed repeatedly while it was being read")
 
 
 class EditorController(QObject):
@@ -129,6 +205,7 @@ class EditorController(QObject):
         window.rejectCorrectionRequested.connect(self.reject_line)
         window.keepPageCorrectionsRequested.connect(self.keep_page)
         window.rejectPageCorrectionsRequested.connect(self.reject_page)
+        window.normalize_action.toggled.connect(self._nfc_toggled)
 
     @Slot(object)
     def open_project(self, paths: ProjectPaths) -> None:
@@ -149,6 +226,7 @@ class EditorController(QObject):
         self.project_paths = paths
         self.ground_truth = ground_truth
         self.session.normalize_nfc = paths.normalize_nfc
+        self.window.normalize_action.setChecked(paths.normalize_nfc)
         self.documents.clear()
         self.runs.clear()
         if self.session.document is not None:
@@ -189,7 +267,12 @@ class EditorController(QObject):
             self._error("Could not open PAGE document", str(error))
 
     def _display(self, document: PageDocument, pair: PagePair) -> None:
-        self.window.load_page(pair.image_path, document.active_lines, page_payload=pair)
+        self.window.load_page(
+            pair.image_path,
+            document.active_lines,
+            page_payload=pair,
+            page_size=(document.image_width, document.image_height),
+        )
         self._show_validation(document)
         run = self.runs.get(document.source_path)
         self.window.set_correction_review(run)
@@ -232,6 +315,13 @@ class EditorController(QObject):
         document = self.session.document
         if document is None or not self._require_ground_truth() or self._task is not None:
             return
+        if self._is_page_dirty():
+            self._error(
+                "Save or discard current changes",
+                "Page auto-correct needs a saved PAGE document so the audit original "
+                "matches the in-memory state. Save or discard first.",
+            )
+            return
         snapshot = deepcopy(document)
         book = self.ground_truth
         assert book is not None
@@ -252,7 +342,7 @@ class EditorController(QObject):
         project = self.session.project
         if project is None or not self._require_ground_truth() or self._task is not None:
             return
-        if self.session.document is not None and self.session.document.is_dirty:
+        if self._is_page_dirty():
             self._error(
                 "Save or discard current changes",
                 "Folder correction starts from the XML files on disk. Save or discard the "
@@ -270,20 +360,26 @@ class EditorController(QObject):
             results: list[_BatchProposal] = []
             errors: list[str] = []
             count = max(1, len(pairs))
+            cancelled = False
             for index, pair in enumerate(pairs):
-                token.raise_if_cancelled()
+                if token.cancelled:
+                    cancelled = True
+                    break
                 progress(round(index * 100 / count), f"Correcting {pair.xml_path.name}")
                 try:
-                    document = parse_page(pair.xml_path)
+                    document, source_digest = _parse_page_snapshot(pair.xml_path)
                     document.image_path = pair.image_path
                     proposal = self.workflow.propose(document, book, cancel_token=token)
-                    results.append(_BatchProposal(pair, document, proposal))
+                    results.append(
+                        _BatchProposal(pair, document, proposal, source_digest)
+                    )
                 except Exception as error:
                     if token.cancelled:
-                        token.raise_if_cancelled()
+                        cancelled = True
+                        break
                     errors.append(f"{pair.xml_path.name}: {type(error).__name__}: {error}")
             progress(100, "Folder correction proposals ready")
-            return _BatchResult(tuple(results), tuple(errors))
+            return _BatchResult(tuple(results), tuple(errors), cancelled=cancelled)
 
         self._start_task(operation, self._apply_batch_proposals)
 
@@ -308,11 +404,24 @@ class EditorController(QObject):
             self.window.set_correction_progress(0, "Cancelling…")
 
     def _apply_page_proposal(self, proposal: PageCorrectionProposal) -> None:
+        if self._task_cancelled():
+            return
         document = self.session.document
         if document is None or self.project_paths is None:
             return
+        if self._is_page_dirty():
+            self._error(
+                "Save or discard current changes",
+                "The page changed while correction was running. The proposal was not applied.",
+            )
+            return
         try:
-            run = self.workflow.apply(document, proposal, self.project_paths.audit_directory)
+            run = self.workflow.apply(
+                document,
+                proposal,
+                self.project_paths.audit_directory,
+                normalize_nfc=self.session.normalize_nfc,
+            )
         except Exception as error:
             self._error("Could not apply correction", str(error))
             return
@@ -324,6 +433,9 @@ class EditorController(QObject):
         )
 
     def _apply_batch_proposals(self, result_set: _BatchResult) -> None:
+        if self._task_cancelled() or result_set.cancelled:
+            self.window.statusBar().showMessage("Automatic correction cancelled", 5000)
+            return
         if self.project_paths is None:
             return
         applied = 0
@@ -331,12 +443,54 @@ class EditorController(QObject):
         current_path = (
             self.session.document.source_path if self.session.document is not None else None
         )
+        live = self.session.document
+        current_skipped = False
         for result in result_set.proposals:
+            cached = self.documents.get(result.pair.xml_path)
+            try:
+                source_changed = (
+                    _source_digest(result.pair.xml_path) != result.source_digest
+                )
+            except OSError as error:
+                failures.append(
+                    f"{result.pair.xml_path.name}: skipped; source could not be checked: {error}"
+                )
+                continue
+            if source_changed:
+                if result.pair.xml_path == current_path:
+                    current_skipped = True
+                failures.append(
+                    f"{result.pair.xml_path.name}: skipped; source XML changed while correction ran"
+                )
+                continue
+            if (
+                live is not None
+                and live.source_path == result.pair.xml_path
+                and (
+                    live.is_dirty
+                    or not self.window.undo_stack.isClean()
+                    or cached is not live
+                    or self._run_has_actionable_state(result.pair.xml_path)
+                )
+            ):
+                current_skipped = True
+                failures.append(
+                    f"{result.pair.xml_path.name}: skipped; live page has unsaved edits"
+                )
+                continue
+            if cached is not None and cached is not live and (
+                cached.is_dirty or self._run_has_actionable_state(result.pair.xml_path)
+            ):
+                failures.append(
+                    f"{result.pair.xml_path.name}: skipped because cached edits would be replaced"
+                )
+                continue
             try:
                 run = self.workflow.apply(
                     result.document,
                     result.proposal,
                     self.project_paths.audit_directory,
+                    normalize_nfc=self.session.normalize_nfc,
                 )
             except Exception as error:
                 failures.append(f"{result.pair.xml_path.name}: {error}")
@@ -344,7 +498,11 @@ class EditorController(QObject):
             self.documents[result.pair.xml_path] = result.document
             self.runs[result.pair.xml_path] = run
             applied += 1
-        if current_path is not None and current_path in self.documents:
+        if (
+            current_path is not None
+            and current_path in self.documents
+            and not current_skipped
+        ):
             document = self.documents[current_path]
             self.session.document = document
             pair = next(
@@ -355,7 +513,7 @@ class EditorController(QObject):
             self._display(document, pair)
         message = f"Automatically applied correction to {applied} page(s) in memory"
         if failures:
-            message += f"; {len(failures)} failed"
+            message += f"; {len(failures)} skipped or failed"
             self.window.set_validation(message, failures)
         self.window.statusBar().showMessage(message, 8000)
 
@@ -389,36 +547,127 @@ class EditorController(QObject):
         run = self._current_run()
         if run is None:
             return
-        run.keep_line(line_id)
-        self._refresh_document(line_id)
+        try:
+            application = run.application_for_line(line_id)
+        except KeyError:
+            return
+        if not application.proposal.actionable or application.decision not in {
+            ReviewDecision.PENDING,
+            ReviewDecision.APPLIED,
+        }:
+            return
+        self.window.undo_stack.push(
+            _ReviewDecisionCommand(
+                run,
+                "keep",
+                (line_id,),
+                lambda: self._refresh_document(line_id),
+                "Keep correction",
+            )
+        )
 
     @Slot(str)
     def reject_line(self, line_id: str) -> None:
         run = self._current_run()
         if run is None:
             return
-        run.reject_line(line_id)
-        self._refresh_document(line_id)
+        try:
+            application = run.application_for_line(line_id)
+        except KeyError:
+            return
+        if not application.proposal.actionable or application.decision not in {
+            ReviewDecision.PENDING,
+            ReviewDecision.APPLIED,
+            ReviewDecision.KEPT,
+        }:
+            return
+        self.window.undo_stack.push(
+            _ReviewDecisionCommand(
+                run,
+                "reject",
+                (line_id,),
+                lambda: self._refresh_document(line_id),
+                "Reject correction",
+            )
+        )
         self._sync_clean_state()
 
     @Slot()
     def keep_page(self) -> None:
         run = self._current_run()
-        if run is not None:
-            run.keep_page()
-            self._refresh_document()
+        if run is None:
+            return
+        line_ids = tuple(
+            application.proposal.line_ids[0]
+            for application in run.applications
+            if application.proposal.line_ids
+            and application.proposal.actionable
+            and application.decision
+            in {ReviewDecision.PENDING, ReviewDecision.APPLIED}
+        )
+        if not line_ids:
+            return
+        self.window.undo_stack.push(
+            _ReviewDecisionCommand(
+                run, "keep", line_ids, self._refresh_document, "Keep page corrections"
+            )
+        )
 
     @Slot()
     def reject_page(self) -> None:
         run = self._current_run()
-        if run is not None:
-            run.reject_page()
-            self._refresh_document()
-            self._sync_clean_state()
+        if run is None:
+            return
+        line_ids = tuple(
+            application.proposal.line_ids[0]
+            for application in run.applications
+            if application.proposal.line_ids
+            and application.proposal.actionable
+            and application.decision
+            in {
+                ReviewDecision.PENDING,
+                ReviewDecision.APPLIED,
+                ReviewDecision.KEPT,
+            }
+        )
+        if not line_ids:
+            return
+        self.window.undo_stack.push(
+            _ReviewDecisionCommand(
+                run, "reject", line_ids, self._refresh_document, "Reject page corrections"
+            )
+        )
+        self._sync_clean_state()
 
     def _current_run(self) -> PageAutoCorrectionRun | None:
         document = self.session.document
         return self.runs.get(document.source_path) if document is not None else None
+
+    def _task_cancelled(self) -> bool:
+        return self._task is not None and self._task.token.cancelled
+
+    def _is_page_dirty(self) -> bool:
+        document = self.session.document
+        if document is None:
+            return False
+        if document.is_dirty or not self.window.undo_stack.isClean():
+            return True
+        return self._run_has_actionable_state(document.source_path)
+
+    def _run_has_actionable_state(self, source_path: Path) -> bool:
+        run = self.runs.get(source_path)
+        if run is None:
+            return False
+        return any(
+            application.decision
+            in {ReviewDecision.PENDING, ReviewDecision.APPLIED, ReviewDecision.KEPT}
+            and application.proposal.actionable
+            for application in run.applications
+        )
+
+    @Slot(bool)
+    def _nfc_toggled(self, checked: bool) -> None:
+        self.session.normalize_nfc = checked
 
     def _refresh_document(self, selected_line_id: str | None = None) -> None:
         document = self.session.document

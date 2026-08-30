@@ -71,6 +71,26 @@ def test_ground_truth_docx_parser_and_page_resolution(tmp_path: Path) -> None:
     assert book.pages["1r"][0].index == 0
 
 
+def test_ground_truth_strips_bidi_reads_tables_and_warns_on_folio_like(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "truth.docx"
+    document = Document()
+    document.add_paragraph("\u200f[93V]\u200e")
+    document.add_paragraph("سطر الصفحة")
+    document.add_paragraph("[ 99v ]")
+    table = document.add_table(rows=2, cols=1)
+    table.cell(0, 0).text = "[2r]"
+    table.cell(1, 0).text = "سطر الجدول"
+    document.save(source)
+
+    book = parse_ground_truth_docx(source)
+    assert tuple(book.pages) == ("93v", "2r")
+    assert [line.text for line in book.pages["93v"]] == ["سطر الصفحة"]
+    assert [line.text for line in book.pages["2r"]] == ["سطر الجدول"]
+    assert any("99v" in warning for warning in book.warnings)
+
+
 def test_run_applies_in_memory_audits_and_never_overwrites_xml(tmp_path: Path) -> None:
     xml_path = tmp_path / "1r.xml"
     original_bytes = write_xml(xml_path, text_line("line-7", "النسخة القديمة"))
@@ -275,3 +295,22 @@ def test_stale_proposal_is_rejected_before_audit_or_mutation(tmp_path: Path) -> 
     assert document.line_by_id("l1").text == "تعديل يدوي لاحق"
     assert not (tmp_path / "history").exists()
     assert xml_path.read_bytes() == original_bytes
+
+
+def test_apply_nfc_normalizes_ground_truth_text(tmp_path: Path) -> None:
+    import unicodedata
+
+    composed = "café"
+    decomposed = unicodedata.normalize("NFD", composed)
+    assert decomposed != composed
+    xml_path = tmp_path / "1r.xml"
+    write_xml(xml_path, text_line("l1", "cafe"))
+    truth_path = tmp_path / "truth.docx"
+    write_ground_truth(truth_path, ["[1r]", decomposed])
+    document = parse_page(xml_path)
+    AutoCorrectionWorkflow().run_page(
+        document,
+        parse_ground_truth_docx(truth_path),
+        tmp_path / "history",
+    )
+    assert document.line_by_id("l1").text == composed

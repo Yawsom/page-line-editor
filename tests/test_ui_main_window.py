@@ -48,6 +48,8 @@ def test_toolbar_exposes_save_correction_and_geometry_modes(
     assert window.correct_page_action.text() == "Auto-correct Page"
     assert set(window.mode_actions) == set(EditMode)
     assert window.polygons_action.isChecked()
+    assert window.normalize_action.isChecked()
+    assert window.normalize_action in window.view_menu.actions()
     assert window.baselines_action.isChecked()
     assert window.toolBarArea(window.tools_toolbar) == Qt.ToolBarArea.LeftToolBarArea
     assert all(not action.icon().isNull() for action in window.mode_actions.values())
@@ -284,7 +286,7 @@ def test_character_diff_and_accepted_neutral_line(qtbot) -> None:  # type: ignor
     assert not window.canvas.overlay.addition_gutter.text().strip()
 
 
-def test_review_panel_shows_correction_above_original_with_removed_tag(
+def test_accepted_removal_collapses_review_to_neutral_removed_row(
     qtbot,
 ) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
@@ -298,21 +300,51 @@ def test_review_panel_shows_correction_above_original_with_removed_tag(
     )
     application = SimpleNamespace(
         proposal=proposal,
-        decision=SimpleNamespace(value="applied"),
+        decision=SimpleNamespace(value="kept"),
     )
-    window.set_correction_review(SimpleNamespace(applications=(application,)))
+    window.set_correction_review(
+        SimpleNamespace(
+            applications=(application,),
+            document=SimpleNamespace(line_by_id=lambda _id: SimpleNamespace(deleted=True)),
+        )
+    )
 
     card = window.review_panel.findChild(QFrame, "correctionReviewCard")
     assert card is not None
     labels = [label.text() for label in card.findChildren(QLabel)]
     assert "REMOVED" in labels
     assert "Removed from PAGE XML" in labels
-    assert any("نص&nbsp;زائد" in label for label in labels)
-    assert any("line-through" in label for label in labels)
-    addition = card.findChild(QFrame, "reviewAdditionRow")
-    deletion = card.findChild(QFrame, "reviewDeletionRow")
-    assert addition is not None and deletion is not None
-    assert card.layout().indexOf(addition) < card.layout().indexOf(deletion)
+    assert card.findChild(QFrame, "reviewNeutralRow") is not None
+    assert card.findChild(QFrame, "reviewDeletionRow") is None
+
+
+def test_review_panel_labels_pending_extra_as_pending_deletion(
+    qtbot,
+) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    proposal = SimpleNamespace(
+        primary_line_id="arabic-line",
+        status=SimpleNamespace(value="EXTRA"),
+        after_text=None,
+        before_text="نص زائد",
+        actionable=True,
+        after=(SimpleNamespace(deleted=True),),
+    )
+    application = SimpleNamespace(
+        proposal=proposal,
+        decision=SimpleNamespace(value="pending"),
+    )
+    window.set_correction_review(
+        SimpleNamespace(
+            applications=(application,),
+            document=SimpleNamespace(line_by_id=lambda _id: SimpleNamespace(deleted=False)),
+        )
+    )
+    labels = [label.text() for label in window.review_panel.findChildren(QLabel)]
+    assert "EXTRA" in labels
+    assert "REMOVED" not in labels
+    assert "Pending deletion (Keep to remove)" in labels
+    assert any("نص&nbsp;زائد" in label and "line-through" in label for label in labels)
 
 
 def test_removed_line_geometry_disappears_when_scene_refreshes(qtbot) -> None:  # type: ignore[no-untyped-def]

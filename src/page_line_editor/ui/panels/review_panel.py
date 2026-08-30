@@ -177,7 +177,9 @@ class ReviewPanel(QWidget):
             original.setObjectName("reviewOriginalText")
             difference = compare_text(original_text, str(entry.get("after_text", "")))
             dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
-            if not bool(entry.get("removed")):
+            if not bool(entry.get("removed")) and not bool(
+                entry.get("proposed_removal")
+            ):
                 corrected.setTextFormat(Qt.TextFormat.RichText)
                 corrected.setText(
                     rich_diff_text(difference.after, side="after", dark=dark)

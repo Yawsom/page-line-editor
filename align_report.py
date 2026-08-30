@@ -7,9 +7,11 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import statistics
 import sys
+import tempfile
 import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
@@ -19,7 +21,6 @@ from pathlib import Path
 
 PAGE_NS_URI = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
 PAGE_NS = {"p": PAGE_NS_URI}
-FOLIO_RE = re.compile(r"^\[(\d+[rv])\]$")
 READING_ORDER_RE = re.compile(r"readingOrder\s*\{index:\s*\d+;\}")
 
 TASHKEEL_RE = re.compile(r"[\u064B-\u065F\u0670]")
@@ -210,7 +211,7 @@ def parse_page_xml(path: Path) -> tuple[str, str | None, list[XmlLine]]:
     if page is None:
         raise ValueError(f"No Page element in {path}")
     image_filename = page.get("imageFilename")
-    folio = Path(image_filename).stem if image_filename else path.stem.replace("transkribus-", "")
+    folio = _xml_folio_key(path, image_filename)
     lines: list[XmlLine] = []
     for idx, elem in enumerate(page.findall(".//p:TextLine", PAGE_NS)):
         coords_el = elem.find("p:Coords", PAGE_NS)
@@ -241,25 +242,23 @@ def parse_page_xml(path: Path) -> tuple[str, str | None, list[XmlLine]]:
     return folio, image_filename, lines
 
 
-def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
-    from docx import Document
+def _xml_folio_key(path: Path, image_filename: str | None) -> str:
+    primary = Path(image_filename).stem if image_filename else path.stem
+    if primary.lower().startswith("transkribus-"):
+        stripped = primary[len("transkribus-") :]
+        if stripped:
+            primary = stripped
+    return primary.casefold()
 
-    document = Document(str(path))
-    pages: dict[str, list[GtLine]] = {}
-    current: str | None = None
-    for para in document.paragraphs:
-        text = (para.text or "").strip()
-        if not text:
-            continue
-        header = FOLIO_RE.match(text)
-        if header:
-            current = header.group(1)
-            pages.setdefault(current, [])
-            continue
-        if current is None:
-            continue
-        pages[current].append(GtLine(index=len(pages[current]), text=text))
-    return pages
+
+def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
+    from page_line_editor.application.ground_truth import parse_ground_truth_docx
+
+    book = parse_ground_truth_docx(path)
+    return {
+        key: [GtLine(line.index, line.text) for line in lines]
+        for key, lines in book.pages.items()
+    }
 
 
 def median_spacing(lines: list[XmlLine]) -> float:
@@ -617,6 +616,7 @@ def rewrite_page_xml(
     dest: Path,
     *,
     delete_all_extras: bool = False,
+    delete_noise_extras: bool = False,
 ) -> dict[str, int]:
     """Drop confirmed-noise extras, merge geometry, and replace Unicode with GT."""
     tree = ET.parse(src)
@@ -636,7 +636,7 @@ def rewrite_page_xml(
             # A low-similarity real line can be represented by the aligner as an
             # EXTRA next to a MISSING line. Only automatically delete lines that
             # the geometry/text heuristic independently identified as noise.
-            if delete_all_extras or "noise" in item.flags:
+            if delete_all_extras or (delete_noise_extras and "noise" in item.flags):
                 delete_ids.update(item.xml_ids)
             else:
                 preserved_extras += 1
@@ -687,7 +687,7 @@ def rewrite_page_xml(
         last_change.text = datetime.now().astimezone().isoformat(timespec="milliseconds")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(serialize_transkribus_xml(root), encoding="utf-8")
+    _atomic_write_text(dest, serialize_transkribus_xml(root))
     return stats
 
 
@@ -703,8 +703,27 @@ def serialize_transkribus_xml(root: ET.Element) -> str:
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + body
 
 
+def _atomic_write_text(dest: Path, text: str) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, raw_temp = tempfile.mkstemp(prefix=f".{dest.name}.", suffix=".tmp", dir=dest.parent)
+    temp_path = Path(raw_temp)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, dest)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def write_corrected_xml(
-    pages: list[PageResult], out_dir: Path, *, delete_all_extras: bool = False
+    pages: list[PageResult],
+    out_dir: Path,
+    *,
+    delete_all_extras: bool = False,
+    delete_noise_extras: bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for page in pages:
@@ -713,7 +732,11 @@ def write_corrected_xml(
         src = Path(page.xml_path)
         dest = out_dir / src.name
         stats = rewrite_page_xml(
-            src, page.alignments, dest, delete_all_extras=delete_all_extras
+            src,
+            page.alignments,
+            dest,
+            delete_all_extras=delete_all_extras,
+            delete_noise_extras=delete_noise_extras,
         )
         print(
             f"  XML {page.folio}: kept {stats['kept']}  deleted {stats['deleted']}"
@@ -1003,6 +1026,8 @@ def load_xml_pages(xml_dir: Path) -> dict[str, tuple[Path, str | None, list[XmlL
     pages: dict[str, tuple[Path, str | None, list[XmlLine]]] = {}
     for path in sorted(xml_dir.glob("*.xml")):
         folio, image_filename, lines = parse_page_xml(path)
+        if folio in pages:
+            raise ValueError(f"Duplicate folio {folio!r}: {pages[folio][0]} and {path}")
         pages[folio] = (path, image_filename, lines)
     return pages
 
@@ -1014,6 +1039,7 @@ def run(
     corrected_dir: Path | None = None,
     *,
     delete_all_extras: bool = False,
+    delete_noise_extras: bool = False,
 ) -> list[PageResult]:
     gt_pages = parse_ground_truth(gt_path)
     xml_pages = load_xml_pages(xml_dir)
@@ -1029,7 +1055,10 @@ def run(
     if corrected_dir is not None:
         print("Corrected PAGE XML:")
         write_corrected_xml(
-            results, corrected_dir, delete_all_extras=delete_all_extras
+            results,
+            corrected_dir,
+            delete_all_extras=delete_all_extras,
+            delete_noise_extras=delete_noise_extras,
         )
     return results
 
@@ -1046,12 +1075,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gt", type=Path, default=Path("ground_truth/S155-transcription.docx"))
     parser.add_argument("--xml-dir", type=Path, default=Path("transcribed_xml"))
     parser.add_argument("--out", type=Path, default=Path("reports"))
-    parser.add_argument("--corrected-dir", type=Path, default=Path("corrected_xml"))
-    parser.add_argument("--no-xml", action="store_true", help="Skip writing corrected PAGE XML")
+    parser.add_argument(
+        "--corrected-dir",
+        type=Path,
+        default=None,
+        help="Write corrected PAGE XML here. Default is report-only.",
+    )
+    parser.add_argument(
+        "--no-xml",
+        action="store_true",
+        help="Deprecated: report-only is the default. Kept to force skipping XML output.",
+    )
     parser.add_argument(
         "--delete-all-extras",
         action="store_true",
         help="Delete every EXTRA line, including uncertain non-noise lines",
+    )
+    parser.add_argument(
+        "--delete-noise-extras",
+        action="store_true",
+        help="Delete EXTRA lines that the noise heuristic flagged. Off by default.",
     )
     args = parser.parse_args(argv)
     if not args.gt.exists():
@@ -1061,12 +1104,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"XML directory not found: {args.xml_dir}", file=sys.stderr)
         return 1
     corrected = None if args.no_xml else args.corrected_dir
+    if corrected is not None and corrected.resolve() == args.xml_dir.resolve():
+        print("Refusing to write corrected XML into --xml-dir (would overwrite sources).", file=sys.stderr)
+        return 1
     run(
         args.gt,
         args.xml_dir,
         args.out,
         corrected,
         delete_all_extras=args.delete_all_extras,
+        delete_noise_extras=args.delete_noise_extras,
     )
     print(f"Wrote reports to {args.out.resolve()}")
     if corrected is not None:

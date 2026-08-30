@@ -264,6 +264,7 @@ class MainWindow(QMainWindow):
                 self.polygons_action,
                 self.baselines_action,
                 self.diff_action,
+                self.normalize_action,
             )
         )
         self.view_button = self._toolbar_menu_button(toolbar, "View", self.view_menu)
@@ -371,7 +372,9 @@ class MainWindow(QMainWindow):
         lines,
         page_payload: Any = None,
         on_change=None,
+        page_size: tuple[int, int] | None = None,
     ) -> None:
+        self.canvas.set_page_size(*(page_size or (None, None)))
         self.canvas.set_page(image, lines, on_change)
         self._current_page_payload = page_payload
         self.undo_stack.clear()
@@ -385,16 +388,27 @@ class MainWindow(QMainWindow):
         entries: list[dict[str, object]] = []
         for application in run.applications:
             proposal = application.proposal
-            removed = proposal.status.value == "EXTRA" and any(
-                state.deleted for state in getattr(proposal, "after", ())
-            )
+            decision = getattr(application.decision, "value", application.decision)
+            live_line = None
+            document = getattr(run, "document", None)
+            line_id = proposal.primary_line_id or ""
+            if document is not None and line_id:
+                try:
+                    live_line = document.line_by_id(line_id)
+                except (KeyError, AttributeError):
+                    live_line = None
+            live_deleted = bool(getattr(live_line, "deleted", False))
+            extra = proposal.status.value == "EXTRA"
+            removed = extra and live_deleted and decision in {"kept", "applied"}
             status = "REMOVED" if removed else {
                 "MATCH": "MATCHED",
             }.get(proposal.status.value, proposal.status.value)
             corrected = proposal.after_text
-            if corrected is None:
+            if extra and not removed and decision == "pending":
+                corrected = "Pending deletion (Keep to remove)"
+            elif corrected is None:
                 corrected = "Removed from PAGE XML" if removed else "Not automatically removed"
-            if application.decision.value == "rejected":
+            if decision == "rejected":
                 corrected = proposal.before_text or "—"
             entries.append(
                 {
@@ -403,9 +417,10 @@ class MainWindow(QMainWindow):
                     "corrected": corrected or "—",
                     "after_text": proposal.after_text or "",
                     "original": proposal.before_text or "—",
-                    "decision": application.decision.value,
+                    "decision": str(decision),
                     "actionable": proposal.actionable,
                     "removed": removed,
+                    "proposed_removal": extra and decision == "pending",
                 }
             )
         self.review_panel.set_corrections(entries)
@@ -436,6 +451,7 @@ class MainWindow(QMainWindow):
         self.saveRequested.emit()
 
     def mark_saved(self) -> None:
+        self.undo_stack.clear()
         self.undo_stack.setClean()
         self.statusBar().showMessage("Saved", 3000)
 

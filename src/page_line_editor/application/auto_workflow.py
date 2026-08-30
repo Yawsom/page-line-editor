@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -173,11 +174,13 @@ class PageAutoCorrectionRun:
         proposal: PageCorrectionProposal,
         applications: tuple[AppliedProposal, ...],
         audit: AutoAuditPaths,
+        normalize_nfc: bool = True,
     ) -> None:
         self.document = document
         self.proposal = proposal
         self.applications = applications
         self.audit = audit
+        self.normalize_nfc = normalize_nfc
         self._by_proposal_id = {
             item.proposal.proposal_id: item for item in applications
         }
@@ -187,6 +190,9 @@ class PageAutoCorrectionRun:
             for line_id in item.proposal.line_ids
         }
         self._write_manifest()
+
+    def _normalize(self, text: str) -> str:
+        return unicodedata.normalize("NFC", text) if self.normalize_nfc else text
 
     def application_for_line(self, line_id: str) -> AppliedProposal:
         try:
@@ -202,7 +208,7 @@ class PageAutoCorrectionRun:
             if application.decision is ReviewDecision.PENDING:
                 for state in application.proposal.after:
                     line = self.document.line_by_id(state.line_id)
-                    line.text = state.text
+                    line.text = self._normalize(state.text)
                     line.polygon = _polygon(state.polygon)
                     line.baseline = _baseline(state.baseline)
                     line.deleted = state.deleted
@@ -296,6 +302,8 @@ class AutoCorrectionWorkflow:
         document: PageDocument,
         proposal: PageCorrectionProposal,
         audit_root: str | Path,
+        *,
+        normalize_nfc: bool = True,
     ) -> PageAutoCorrectionRun:
         """Audit the source, then automatically apply all actionable proposals."""
 
@@ -316,8 +324,11 @@ class AutoCorrectionWorkflow:
                     )
                 snapshots.setdefault(state.line_id, DocumentLineState.capture(line))
             for state in item.after:
+                text = state.text
+                if normalize_nfc:
+                    text = unicodedata.normalize("NFC", text)
                 prepared[state.line_id] = (
-                    state.text,
+                    text,
                     _polygon(state.polygon),
                     _baseline(state.baseline),
                     state.deleted,
@@ -371,7 +382,9 @@ class AutoCorrectionWorkflow:
             applications.append(AppliedProposal(item, before, decision))
         if any(item.decision is ReviewDecision.APPLIED for item in applications):
             document.revision += 1
-        return PageAutoCorrectionRun(document, proposal, tuple(applications), audit)
+        return PageAutoCorrectionRun(
+            document, proposal, tuple(applications), audit, normalize_nfc=normalize_nfc
+        )
 
     def run_page(
         self,
@@ -380,9 +393,10 @@ class AutoCorrectionWorkflow:
         audit_root: str | Path,
         settings: CorrectionSettings | None = None,
         cancel_token: CancellationToken | None = None,
+        normalize_nfc: bool = True,
     ) -> PageAutoCorrectionRun:
         proposal = self.propose(document, ground_truth, settings, cancel_token)
-        return self.apply(document, proposal, audit_root)
+        return self.apply(document, proposal, audit_root, normalize_nfc=normalize_nfc)
 
     def _create_audit(
         self,

@@ -92,8 +92,9 @@ def parse_page(path: str | Path) -> PageDocument:
                 continue
             source_line_id = line_element.get("id") or f"{region_id}-line-{line_order + 1}"
             seen_line_ids[source_line_id] = seen_line_ids.get(source_line_id, 0) + 1
-            # The XML path is the definitive identity inside the retained tree. IDs
-            # remain unchanged so duplicate source IDs can be diagnosed faithfully.
+            # Writer identity is unique TextLine/@id. xml_path is a positional
+            # lxml getpath() cache and must be refreshed after siblings shift.
+            # Source ids are left unchanged so duplicates can be diagnosed.
             coords = line_element.find(q("Coords"))
             if coords is None or not coords.get("points"):
                 raise PageXmlError(f"TextLine {source_line_id!r} has no Coords/@points")
