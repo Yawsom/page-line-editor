@@ -311,7 +311,7 @@ class TranscriptionOverlay(QFrame):
 
         self.resize(width, self.sizeHint().height())
         x = max(8, min(line_rect.left(), viewport_width - width - 8))
-        self.move(x, line_rect.bottom() + 8)
+        self.move(x, line_rect.bottom() + 2)
 
     def _apply_diff_style(self) -> None:
         dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128

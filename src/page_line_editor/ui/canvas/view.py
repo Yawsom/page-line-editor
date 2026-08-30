@@ -196,6 +196,13 @@ class PageCanvasView(QGraphicsView):
         if item is None or not self.overlay.isVisible():
             return
         line_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
+        points = item.polygon + item.baseline
+        if points:
+            # Anchor to the visible geometry rather than the item's padded hit
+            # bounds so the editor sits directly beneath the lowest vertex.
+            line_rect.setBottom(
+                max(self.mapFromScene(QPointF(*point)).y() for point in points)
+            )
         self.overlay.anchor_below(line_rect, self.viewport().width())
 
     def ensure_editor_visible(self) -> None:

@@ -76,8 +76,11 @@ def test_selection_shows_rtl_editor_below_geometry(qtbot) -> None:  # type: igno
     item.setSelected(True)
     qtbot.waitUntil(view.overlay.isVisible)
     view.update_overlay_position()
-    line_bottom = view.mapFromScene(item.sceneBoundingRect().bottomLeft()).y()
-    assert view.overlay.y() >= line_bottom
+    lowest_vertex = max(
+        view.mapFromScene(QPointF(*point)).y()
+        for point in item.polygon + item.baseline
+    )
+    assert view.overlay.y() - lowest_vertex == 2
     assert view.overlay.editor.layoutDirection() == Qt.LayoutDirection.RightToLeft
     assert view.overlay.editor.toPlainText() == "السلام عليكم"
     assert not view.overlay.deletion_row.isVisible()
