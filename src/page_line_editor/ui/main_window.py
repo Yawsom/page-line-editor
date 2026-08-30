@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QSettings, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QIcon, QKeySequence, QUndoStack
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QCloseEvent,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -65,6 +73,7 @@ class MainWindow(QMainWindow):
         self._transcription_mode = False
         self._build_docks()
         self._build_actions()
+        self._build_canvas_shortcuts()
         self._build_toolbar()
         self._connect_signals()
         self.statusBar().showMessage("Open a project to begin")
@@ -181,6 +190,22 @@ class MainWindow(QMainWindow):
             "Auto-correct Folder",
             self.autoCorrectBatchRequested,
             tooltip="Apply automatic correction to the project in memory",
+        )
+
+    def _build_canvas_shortcuts(self) -> None:
+        """Reserve line navigation keys before QGraphicsView can scroll."""
+
+        self.previous_line_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Up), self.canvas)
+        self.previous_line_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.previous_line_shortcut.activated.connect(
+            lambda: self.canvas.select_adjacent_line(-1)
+        )
+        self.next_line_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Down), self.canvas)
+        self.next_line_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.next_line_shortcut.activated.connect(
+            lambda: self.canvas.select_adjacent_line(1)
         )
 
     def _build_toolbar(self) -> None:

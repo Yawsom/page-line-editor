@@ -144,6 +144,29 @@ def test_geometry_and_transcription_modes_toggle_with_shortcuts(qtbot) -> None: 
     assert window.canvas.edit_mode is EditMode.SELECT
 
 
+def test_canvas_arrow_shortcuts_select_lines_instead_of_scrolling(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    first = SampleLine(id="line-1")
+    second = SampleLine(
+        id="line-2",
+        text="سطر ثان",
+        polygon=((10, 85), (190, 85), (190, 115), (10, 115)),
+        baseline=((20, 105), (180, 105)),
+    )
+    pixmap = window.canvas.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    window.load_page(pixmap, [first, second])
+    first_item, second_item = window.canvas.page_scene.line_items
+    first_item.setSelected(True)
+    window.activateWindow()
+    window.canvas.viewport().setFocus()
+    qtbot.waitUntil(window.canvas.viewport().hasFocus)
+
+    QTest.keyClick(window.canvas.viewport(), Qt.Key.Key_Down)
+    assert window.canvas.page_scene.selected_line_item() is second_item
+    QTest.keyClick(window.canvas.viewport(), Qt.Key.Key_Up)
+    assert window.canvas.page_scene.selected_line_item() is first_item
+
+
 def test_text_commit_and_undo_marks_window_dirty(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
     item = window.canvas.page_scene.line_items[0]
