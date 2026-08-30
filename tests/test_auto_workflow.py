@@ -113,7 +113,7 @@ def test_run_applies_in_memory_audits_and_never_overwrites_xml(tmp_path: Path) -
     assert xml_path.read_bytes() == original_bytes
 
 
-def test_removed_noise_line_is_deleted_with_geometry_hidden_from_active_page(
+def test_extra_line_is_removed_from_active_page_only_after_keep(
     tmp_path: Path,
 ) -> None:
     xml_path = tmp_path / "1r.xml"
@@ -130,10 +130,33 @@ def test_removed_noise_line_is_deleted_with_geometry_hidden_from_active_page(
     run = AutoCorrectionWorkflow().run_page(document, (), tmp_path / "history")
     line = document.line_by_id("noise")
 
-    assert run.application_for_line("noise").decision is ReviewDecision.APPLIED
+    assert run.application_for_line("noise").decision is ReviewDecision.PENDING
+    assert not line.deleted
+    assert line.correction_status == "EXTRA"
+    assert line.proposal_state == "pending"
+    assert len(document.active_lines) == 1
+
+    run.keep_line("noise")
+
+    assert run.application_for_line("noise").decision is ReviewDecision.KEPT
     assert line.deleted
     assert line.correction_status == "REMOVED"
     assert document.active_lines == []
+
+
+def test_rejecting_pending_extra_preserves_line(tmp_path: Path) -> None:
+    xml_path = tmp_path / "1r.xml"
+    write_xml(xml_path, text_line("extra", "هامش زائد"))
+    document = parse_page(xml_path)
+    run = AutoCorrectionWorkflow().run_page(document, (), tmp_path / "history")
+
+    run.reject_line("extra")
+
+    line = document.line_by_id("extra")
+    assert run.application_for_line("extra").decision is ReviewDecision.REJECTED
+    assert not line.deleted
+    assert line.proposal_state == ""
+    assert document.active_lines == [line]
 
 
 def test_keep_line_and_page_confirm_automatically_applied_values(tmp_path: Path) -> None:

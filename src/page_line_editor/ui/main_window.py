@@ -193,7 +193,7 @@ class MainWindow(QMainWindow):
         )
 
     def _build_canvas_shortcuts(self) -> None:
-        """Reserve line navigation keys before QGraphicsView can scroll."""
+        """Reserve review/navigation keys before child widgets consume them."""
 
         self.previous_line_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Up), self.canvas)
         self.previous_line_shortcut.setContext(
@@ -207,6 +207,42 @@ class MainWindow(QMainWindow):
         self.next_line_shortcut.activated.connect(
             lambda: self.canvas.select_adjacent_line(1)
         )
+        self.accept_change_shortcuts = tuple(
+            QShortcut(QKeySequence(key), self.canvas)
+            for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        )
+        for shortcut in self.accept_change_shortcuts:
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(self._accept_selected_change)
+        self.reject_change_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_Backspace), self.canvas
+        )
+        self.reject_change_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.reject_change_shortcut.activated.connect(self._reject_selected_change)
+
+    def _accept_selected_change(self) -> None:
+        if self.canvas.has_pending_replacement:
+            self.canvas.finish_replacement()
+            return
+        if QApplication.focusWidget() is self.canvas.overlay.editor:
+            self.canvas.overlay.commit_if_changed()
+        self.canvas.accept_selected_correction()
+
+    def _reject_selected_change(self) -> None:
+        editor = self.canvas.overlay.editor
+        if QApplication.focusWidget() is editor:
+            # Keep ordinary text editing safe: Backspace rejects only while
+            # the selected line/canvas has focus, never while typing.
+            cursor = editor.textCursor()
+            if cursor.hasSelection():
+                cursor.removeSelectedText()
+            else:
+                cursor.deletePreviousChar()
+            editor.setTextCursor(cursor)
+            return
+        self.canvas.reject_selected_correction()
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Editor", self)
@@ -275,6 +311,8 @@ class MainWindow(QMainWindow):
         self.canvas.overlay.textCommitRequested.connect(self._commit_text)
         self.canvas.overlay.keepRequested.connect(self.keepCorrectionRequested)
         self.canvas.overlay.rejectRequested.connect(self.rejectCorrectionRequested)
+        self.canvas.keepCorrectionRequested.connect(self.keepCorrectionRequested)
+        self.canvas.rejectCorrectionRequested.connect(self.rejectCorrectionRequested)
         self.canvas.lineGeometryChanged.connect(self.lineGeometryChanged)
         self.canvas.editModeRequested.connect(self._activate_edit_mode)
         self.canvas.geometryEditRejected.connect(

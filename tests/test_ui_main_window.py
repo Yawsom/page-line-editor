@@ -167,6 +167,63 @@ def test_canvas_arrow_shortcuts_select_lines_instead_of_scrolling(qtbot) -> None
     assert window.canvas.page_scene.selected_line_item() is first_item
 
 
+def test_enter_accepts_and_backspace_rejects_selected_change(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    item = window.canvas.page_scene.line_items[0]
+    item.setSelected(True)
+    window.activateWindow()
+    window.canvas.viewport().setFocus()
+    qtbot.waitUntil(window.canvas.viewport().hasFocus)
+    keep_spy = QSignalSpy(window.keepCorrectionRequested)
+    reject_spy = QSignalSpy(window.rejectCorrectionRequested)
+
+    QTest.keyClick(window.canvas.viewport(), Qt.Key.Key_Return)
+    assert keep_spy.count() == 1
+    assert keep_spy.at(0)[0] == "arabic-line"
+    QTest.keyClick(window.canvas.viewport(), Qt.Key.Key_Backspace)
+    assert reject_spy.count() == 1
+    assert reject_spy.at(0)[0] == "arabic-line"
+
+
+def test_backspace_still_edits_when_transcription_field_has_focus(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    item = window.canvas.page_scene.line_items[0]
+    item.setSelected(True)
+    window.activateWindow()
+    editor = window.canvas.overlay.editor
+    editor.setFocus()
+    qtbot.waitUntil(editor.hasFocus)
+    editor.setPlainText("قديم")
+    editor.setCursorPosition(len(editor.toPlainText()))
+    reject_spy = QSignalSpy(window.rejectCorrectionRequested)
+
+    QTest.keyClick(editor, Qt.Key.Key_Backspace)
+
+    assert editor.toPlainText() == "قدي"
+    assert reject_spy.count() == 0
+    window.canvas.overlay.cancel()
+
+
+def test_enter_in_transcription_field_commits_then_accepts(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    item = window.canvas.page_scene.line_items[0]
+    item.setSelected(True)
+    window.activateWindow()
+    editor = window.canvas.overlay.editor
+    editor.setFocus()
+    qtbot.waitUntil(editor.hasFocus)
+    editor.setPlainText("نص مصحح")
+    text_spy = QSignalSpy(window.lineTextChanged)
+    keep_spy = QSignalSpy(window.keepCorrectionRequested)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+
+    assert item.adapter.text == "نص مصحح"
+    assert text_spy.count() == 1
+    assert keep_spy.count() == 1
+    window.undo_stack.setClean()
+
+
 def test_text_commit_and_undo_marks_window_dirty(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
     item = window.canvas.page_scene.line_items[0]

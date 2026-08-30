@@ -86,15 +86,16 @@ def _proposal(
     ordered = (primary,) + tuple(line for line in members if line.line_id != primary.line_id)
     before = tuple(_line_state(line) for line in ordered)
     after: tuple[LineState, ...]
+    automatically_applied: bool
     if alignment.status is CorrectionStatus.EXTRA:
         should_delete = settings.delete_all_extras or (
             settings.apply_noise_deletions and "noise" in alignment.flags
         )
-        after = (
-            tuple(_line_state(line, deleted=True) for line in ordered)
-            if should_delete
-            else before
-        )
+        # Every EXTRA is a real deletion proposal. Confirmed noise may be
+        # applied automatically; uncertain extras remain visible as pending
+        # changes until the reviewer explicitly accepts them.
+        after = tuple(_line_state(line, deleted=True) for line in ordered)
+        automatically_applied = should_delete
     else:
         target_text = alignment.after_text if alignment.after_text is not None else primary.text
         if len(ordered) > 1:
@@ -119,6 +120,7 @@ def _proposal(
                     region_id=primary.region_id,
                 ),
             )
+        automatically_applied = before != after
 
     key = record_key(page.xml_filename, primary.line_id)
     return LineCorrectionProposal(
@@ -137,7 +139,7 @@ def _proposal(
         bbox=alignment.bbox,
         flags=alignment.flags,
         char_diffs=alignment.char_diffs,
-        automatically_applied=before != after,
+        automatically_applied=automatically_applied,
     )
 
 
@@ -221,7 +223,11 @@ def automatically_applied_states(
     rejected = set(rejected_proposal_ids)
     states: dict[str, LineState] = {}
     for proposal in page.proposals:
-        selected = proposal.before if proposal.proposal_id in rejected else proposal.after
+        selected = (
+            proposal.after
+            if proposal.automatically_applied and proposal.proposal_id not in rejected
+            else proposal.before
+        )
         for state in selected:
             states[state.line_id] = state
     return states

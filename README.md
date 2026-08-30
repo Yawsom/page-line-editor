@@ -8,6 +8,9 @@ their XML, overlays every `TextLine/Coords` polygon and `TextLine/Baseline`, and
 keeps an Arabic right-to-left transcription editor anchored beneath the selected
 line. Clicking the polygon interior, border, or baseline selects the same line.
 
+See the [User Guide](docs/user_guide.md) for the complete tool and shortcut
+reference.
+
 ## Current capabilities
 
 - Folder browser with exact-stem, case-insensitive, and PAGE `imageFilename`
@@ -29,16 +32,16 @@ line. Clicking the polygon interior, border, or baseline selects the same line.
   and newly introduced baselines outside their polygons.
 - Toggleable Unicode NFC normalization for manual transcription edits.
 - Current-page and cancellable folder automatic correction.
-- Automatic in-memory application of corrections. Keep confirms an applied
-  result; Reject restores its exact pre-correction text, geometry, deletion, and
-  proposal metadata. XML is not changed until explicit Save.
+- Automatic in-memory application of text and geometry corrections. Pending
+  `EXTRA` deletions remain visible until Keep/Enter removes the line; Reject
+  preserves it. XML is not changed until explicit Save.
 - Timestamped audit runs containing the untouched original XML, JSON/HTML diff
   reports, and a decision manifest.
 - Narrow PAGE XML mutation, offline official PAGE 2013 XSD plus semantic
   validation, exact pre-save backup, and atomic source replacement.
 
-Manual structural split/merge is intentionally deferred. Automatic merge and
-confirmed-noise deletion remain reviewable and reversible.
+Manual structural split/merge is intentionally deferred. Automatic merges and
+pending EXTRA deletions remain reviewable and reversible.
 
 ## Development setup
 
@@ -100,7 +103,8 @@ An active automatic correction shows a character-level comparison until it is
 accepted or rejected. **Keep** accepts the already-applied correction and then
 collapses the line to a neutral transcription row; **Reject** restores the
 original line and also removes the comparison. Lines that have not been through
-automatic correction are neutral from the outset.
+automatic correction are neutral from the outset. Press Enter to accept the
+selected change or Backspace to reject it while the canvas has focus.
 
 The historical command-line workflow remains available during the transition:
 

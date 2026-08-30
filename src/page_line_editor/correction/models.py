@@ -178,7 +178,7 @@ class FolderCorrectionProposal:
 @dataclass(frozen=True, slots=True)
 class CorrectionSettings:
     delete_all_extras: bool = False
-    apply_noise_deletions: bool = True
+    apply_noise_deletions: bool = False
 
 
 def record_key(xml_filename: str, line_id: str) -> str:

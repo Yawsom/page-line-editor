@@ -38,6 +38,7 @@ class StaleCorrectionProposal(AutoCorrectionWorkflowError):
 
 class ReviewDecision(StrEnum):
     APPLIED = "applied"
+    PENDING = "pending"
     KEPT = "kept"
     REJECTED = "rejected"
     REPORT_ONLY = "report_only"
@@ -195,7 +196,21 @@ class PageAutoCorrectionRun:
 
     def keep_line(self, line_id: str) -> AppliedProposal:
         application = self.application_for_line(line_id)
-        if application.decision in {ReviewDecision.APPLIED, ReviewDecision.KEPT}:
+        if application.decision is ReviewDecision.KEPT:
+            return application
+        if application.decision in {ReviewDecision.APPLIED, ReviewDecision.PENDING}:
+            if application.decision is ReviewDecision.PENDING:
+                for state in application.proposal.after:
+                    line = self.document.line_by_id(state.line_id)
+                    line.text = state.text
+                    line.polygon = _polygon(state.polygon)
+                    line.baseline = _baseline(state.baseline)
+                    line.deleted = state.deleted
+                    line.correction_status = (
+                        "REMOVED"
+                        if application.proposal.status.value == "EXTRA" and state.deleted
+                        else application.proposal.status.value
+                    )
             application.decision = ReviewDecision.KEPT
             for affected_id in application.proposal.line_ids:
                 line = self.document.line_by_id(affected_id)
@@ -313,7 +328,7 @@ class AutoCorrectionWorkflow:
         for item in proposal.proposals:
             before = tuple(snapshots[state.line_id] for state in item.before)
             decision = ReviewDecision.REPORT_ONLY
-            if item.actionable:
+            if item.actionable and item.automatically_applied:
                 for state in item.after:
                     text, polygon, baseline, deleted = prepared[state.line_id]
                     line = document.line_by_id(state.line_id)
@@ -331,6 +346,18 @@ class AutoCorrectionWorkflow:
                         else item.status.value
                     )
                 decision = ReviewDecision.APPLIED
+            elif item.actionable:
+                # An uncertain EXTRA is a pending deletion: keep its geometry
+                # visible until the reviewer accepts it, while retaining the
+                # complete proposed tombstone for a reversible decision.
+                for line_id in item.line_ids:
+                    line = document.line_by_id(line_id)
+                    line.proposal_id = item.proposal_id
+                    line.proposal_state = "pending"
+                    line.diff_text = _diff_label(item)
+                    line.pre_correction_text = snapshots[line_id].text
+                    line.correction_status = item.status.value
+                decision = ReviewDecision.PENDING
             else:
                 # Keep report-only matches visible in the in-app comparison
                 # without making the PAGE document dirty.

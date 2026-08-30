@@ -68,6 +68,8 @@ class PageCanvasView(QGraphicsView):
     lineGeometryChanged = Signal(str, object, object)
     geometryEditRejected = Signal(str)
     editModeRequested = Signal(object)
+    keepCorrectionRequested = Signal(str)
+    rejectCorrectionRequested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         self.page_scene = PageScene(parent)
@@ -116,6 +118,10 @@ class PageCanvasView(QGraphicsView):
     @property
     def view_rotation(self) -> int:
         return self._rotation
+
+    @property
+    def has_pending_replacement(self) -> bool:
+        return bool(self._replacement_points)
 
     def set_undo_stack(self, stack: QUndoStack) -> None:
         self._undo_stack = stack
@@ -254,6 +260,24 @@ class PageCanvasView(QGraphicsView):
         target.setSelected(True)
         if editor_had_focus:
             self.overlay.editor.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def accept_selected_correction(self) -> bool:
+        return self._request_selected_correction_decision(accept=True)
+
+    def reject_selected_correction(self) -> bool:
+        return self._request_selected_correction_decision(accept=False)
+
+    def _request_selected_correction_decision(self, *, accept: bool) -> bool:
+        item = self.page_scene.selected_line_item()
+        if item is None or item.adapter.proposal_state not in {
+            "applied",
+            "pending",
+            "proposed",
+        }:
+            return False
+        signal = self.keepCorrectionRequested if accept else self.rejectCorrectionRequested
+        signal.emit(item.adapter.id)
+        return True
 
     def _geometry_edit_requested(
         self,

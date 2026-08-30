@@ -196,7 +196,7 @@ class TranscriptionOverlay(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.diff_card)
 
-        self.editor.commitRequested.connect(self.commit)
+        self.editor.commitRequested.connect(self._commit_or_keep)
         self.editor.cancelRequested.connect(self.cancel)
         self.editor.navigateRequested.connect(self.navigateLineRequested)
         self.editor.textChanged.connect(self._update_diff_markup)
@@ -291,6 +291,11 @@ class TranscriptionOverlay(QFrame):
 
     def commit(self) -> None:
         self.commit_if_changed()
+
+    def _commit_or_keep(self) -> None:
+        self.commit_if_changed()
+        if self._comparison_active:
+            self._keep()
 
     def cancel(self) -> None:
         self.editor.setPlainText(self._committed_text)

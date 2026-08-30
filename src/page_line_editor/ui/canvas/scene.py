@@ -37,6 +37,10 @@ class PageScene(QGraphicsScene):
         lines: Iterable[Any],
         on_change=None,
     ) -> None:
+        # selectionChanged can fire synchronously from clear(); discard Python
+        # references before Qt deletes their underlying graphics objects.
+        self._active_line = None
+        self.line_items = []
         self.clear()
         pixmap = image if isinstance(image, QPixmap) else QPixmap(str(image))
         if pixmap.isNull():
@@ -46,8 +50,6 @@ class PageScene(QGraphicsScene):
             )
         self.image_item = self.addPixmap(pixmap)
         self.image_item.setZValue(-10)
-        self.line_items = []
-        self._active_line = None
         for source in lines:
             adapter = source if isinstance(source, LineAdapter) else LineAdapter(source, on_change)
             item = LineGraphicsItem(adapter, self.theme)

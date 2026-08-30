@@ -9,6 +9,7 @@ from page_line_editor.correction import (
     CancellationToken,
     CorrectionCancelled,
     CorrectionLine,
+    CorrectionSettings,
     CorrectionStatus,
     GroundTruthLine,
     PageCorrectionInput,
@@ -87,19 +88,26 @@ def test_merge_keeps_member_baseline_point_order() -> None:
     assert proposal.after[1].deleted
 
 
-def test_uncertain_extra_is_report_only_but_confirmed_noise_is_applied() -> None:
+def test_extras_are_pending_by_default_and_noise_deletion_is_explicit() -> None:
     uncertain = propose_page(
         PageCorrectionInput("a.xml", (line("real", "السلام عليكم ورحمة الله"),)), ()
     )
     assert uncertain.proposals[0].status is CorrectionStatus.EXTRA
-    assert not uncertain.proposals[0].actionable
+    assert uncertain.proposals[0].actionable
+    assert uncertain.proposals[0].after[0].deleted
     assert not uncertain.proposals[0].automatically_applied
 
     noise = propose_page(
         PageCorrectionInput("b.xml", (line("noise", "1", width=20),)), ()
     )
     assert noise.proposals[0].after[0].deleted
-    assert noise.proposals[0].automatically_applied
+    assert not noise.proposals[0].automatically_applied
+    opted_in = propose_page(
+        PageCorrectionInput("c.xml", (line("noise", "1", width=20),)),
+        (),
+        CorrectionSettings(apply_noise_deletions=True),
+    )
+    assert opted_in.proposals[0].automatically_applied
 
 
 def test_reports_are_keyed_by_filename_and_line_id(tmp_path) -> None:

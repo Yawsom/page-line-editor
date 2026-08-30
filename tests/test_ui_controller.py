@@ -11,6 +11,9 @@ from lxml import etree
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+
 from page_line_editor.pagexml.parser import PAGE_2013_NAMESPACE
 from page_line_editor.ui.controller import EditorController
 from page_line_editor.ui.main_window import MainWindow
@@ -154,3 +157,40 @@ def test_controller_explicit_save_writes_correction_and_exact_manual_backup(
     assert controller.session.document is not None
     assert not controller.session.document.is_dirty
     assert controller.window.undo_stack.isClean()
+
+
+def test_accepting_pending_extra_removes_geometry_and_saved_xml(
+    qtbot, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    project = _project(tmp_path)
+    ground_truth = Document()
+    ground_truth.add_paragraph("[1r]")
+    assert project.paths.ground_truth_path is not None
+    ground_truth.save(project.paths.ground_truth_path)
+    controller = _open_controller(qtbot, project)
+    _complete_current_page_correction(controller)
+    document = controller.session.document
+    assert document is not None
+    line = document.line_by_id("line-1")
+
+    assert line.proposal_state == "pending"
+    assert not line.deleted
+    item = controller.window.canvas.page_scene.line_item("line-1")
+    assert item is not None
+    item.setSelected(True)
+    controller.window.show()
+    controller.window.activateWindow()
+    controller.window.canvas.viewport().setFocus()
+    qtbot.waitUntil(controller.window.canvas.viewport().hasFocus)
+
+    QTest.keyClick(controller.window.canvas.viewport(), Qt.Key.Key_Return)
+
+    assert line.deleted
+    assert controller.window.canvas.page_scene.line_item("line-1") is None
+    assert project.xml_path.read_bytes() == project.original_xml
+    controller.save()
+    tree = etree.parse(str(project.xml_path))
+    assert not tree.xpath(
+        ".//p:TextLine[@id='line-1']",
+        namespaces={"p": PAGE_2013_NAMESPACE},
+    )
