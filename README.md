@@ -93,7 +93,8 @@ switch between geometry assessment and distraction-free transcription review.
 In transcription mode the line regions remain clickable even though their
 geometry is hidden. Right-click a line for its context menu, including text
 editing, isolated selection, centering, geometry-tool shortcuts, and copying the
-PAGE `TextLine` ID.
+PAGE `TextLine` ID. Press Up or Down on the canvas or in the transcription editor
+to select the previous or next line in PAGE document order.
 
 An active automatic correction shows a character-level comparison until it is
 accepted or rejected. **Keep** accepts the already-applied correction and then

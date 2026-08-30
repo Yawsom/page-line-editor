@@ -34,6 +34,7 @@ class TranscriptionEdit(QPlainTextEdit):
 
     commitRequested = Signal()
     cancelRequested = Signal()
+    navigateRequested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -82,6 +83,13 @@ class TranscriptionEdit(QPlainTextEdit):
         self.setExtraSelections(selections)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+        ):
+            self.navigateRequested.emit(-1 if event.key() == Qt.Key.Key_Up else 1)
+            event.accept()
+            return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.commitRequested.emit()
             event.accept()
@@ -100,6 +108,7 @@ class TranscriptionOverlay(QFrame):
     textCommitRequested = Signal(object, str)
     keepRequested = Signal(str)
     rejectRequested = Signal(str)
+    navigateLineRequested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -189,6 +198,7 @@ class TranscriptionOverlay(QFrame):
 
         self.editor.commitRequested.connect(self.commit)
         self.editor.cancelRequested.connect(self.cancel)
+        self.editor.navigateRequested.connect(self.navigateLineRequested)
         self.editor.textChanged.connect(self._update_diff_markup)
         self.keep_button.clicked.connect(self._keep)
         self.reject_button.clicked.connect(self._reject)

@@ -231,6 +231,54 @@ def test_selection_switches_exclusively_and_shift_extends(qtbot) -> None:  # typ
     assert not view.overlay.isVisible()
 
 
+def test_up_and_down_arrows_select_lines_in_page_order(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), second_line()])
+    first, second = view.page_scene.line_items
+    first.setSelected(True)
+    view.setFocus()
+
+    QTest.keyClick(view, Qt.Key.Key_Down)
+    assert view.page_scene.selected_line_item() is second
+    QTest.keyClick(view, Qt.Key.Key_Down)
+    assert view.page_scene.selected_line_item() is second
+    QTest.keyClick(view, Qt.Key.Key_Up)
+    assert view.page_scene.selected_line_item() is first
+
+
+def test_arrow_navigation_from_editor_commits_text_and_keeps_focus(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), second_line()])
+    first, second = view.page_scene.line_items
+    first.setSelected(True)
+    view.activateWindow()
+    view.overlay.editor.setFocus()
+    qtbot.waitUntil(view.overlay.editor.hasFocus)
+    view.overlay.editor.setPlainText("نص معدل")
+    spy = QSignalSpy(view.overlay.textCommitRequested)
+
+    QTest.keyClick(view.overlay.editor, Qt.Key.Key_Down)
+
+    assert spy.count() == 1
+    assert spy.at(0)[1] == "نص معدل"
+    assert view.page_scene.selected_line_item() is second
+    assert view.overlay.editor.hasFocus()
+
+
+def test_arrow_navigation_without_selection_chooses_nearest_boundary(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), second_line()])
+
+    view.select_adjacent_line(1)
+    assert view.page_scene.selected_line_item() is view.page_scene.line_items[0]
+    view.page_scene.clearSelection()
+    view.select_adjacent_line(-1)
+    assert view.page_scene.selected_line_item() is view.page_scene.line_items[-1]
+
+
 def test_whole_line_only_moves_with_dedicated_move_tool(qtbot) -> None:  # type: ignore[no-untyped-def]
     view, stack = make_view(qtbot)
     item = view.page_scene.line_items[0]

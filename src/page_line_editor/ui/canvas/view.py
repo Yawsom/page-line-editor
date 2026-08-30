@@ -97,6 +97,9 @@ class PageCanvasView(QGraphicsView):
         self._context_menu: QMenu | None = None
 
         self.overlay = TranscriptionOverlay(self.viewport())
+        self.overlay.navigateLineRequested.connect(
+            lambda direction: self.select_adjacent_line(direction, focus_editor=True)
+        )
         self.page_scene.lineSelected.connect(self._line_selected)
         self.page_scene.geometryEditRequested.connect(self._geometry_edit_requested)
         self.horizontalScrollBar().valueChanged.connect(self.update_overlay_position)
@@ -228,6 +231,29 @@ class PageCanvasView(QGraphicsView):
             self.update_overlay_position()
             self.ensure_editor_visible()
         self.selectedLineChanged.emit(adapter)
+
+    def select_adjacent_line(self, direction: int, *, focus_editor: bool = False) -> None:
+        """Select the preceding or following TextLine in PAGE document order."""
+
+        items = self.page_scene.line_items
+        if not items or direction == 0:
+            return
+        current = self.page_scene.selected_line_item()
+        if current is None:
+            target_index = 0 if direction > 0 else len(items) - 1
+        else:
+            current_index = items.index(current)
+            target_index = max(0, min(len(items) - 1, current_index + direction))
+        target = items[target_index]
+        if target is current:
+            return
+
+        editor_had_focus = focus_editor or self.overlay.editor.hasFocus()
+        self.cancel_replacement()
+        self.page_scene.clearSelection()
+        target.setSelected(True)
+        if editor_had_focus:
+            self.overlay.editor.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def _geometry_edit_requested(
         self,
@@ -388,6 +414,13 @@ class PageCanvasView(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+        ):
+            self.select_adjacent_line(-1 if event.key() == Qt.Key.Key_Up else 1)
+            event.accept()
+            return
         if event.key() in (Qt.Key.Key_Control, Qt.Key.Key_Meta):
             self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
         if self._replacement_points and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
