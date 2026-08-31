@@ -28,6 +28,9 @@ jobs:
       QT_QPA_PLATFORM: minimal
     steps:
       - uses: actions/checkout@v4
+      - name: Install Qt runtime dependency (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libegl1
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
