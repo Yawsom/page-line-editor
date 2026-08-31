@@ -9,19 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, is_dataclass, replace
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, cast
 
 PointTuple = tuple[float, float]
 Geometry = tuple[tuple[PointTuple, ...], tuple[PointTuple, ...]]
-
-
-@runtime_checkable
-class TextLineLike(Protocol):
-    id: str
-    text: str
-    polygon: Any
-    baseline: Any
-
 
 def point_xy(point: Any) -> PointTuple:
     """Return coordinates from a tuple, Qt point, or domain point."""

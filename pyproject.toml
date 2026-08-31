@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "page-line-editor"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Offline PAGE XML transcription and geometry editor"
 readme = "README.md"
 requires-python = ">=3.11"

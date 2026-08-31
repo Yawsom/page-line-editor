@@ -83,10 +83,6 @@ class XmlLine:
     def width(self) -> int:
         return self.bbox.width
 
-    @property
-    def id_label(self) -> str:
-        return " + ".join(self.ids)
-
 
 @dataclass
 class GtLine:

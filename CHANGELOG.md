@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented here.
 
-## 0.1.0a1 — Unreleased
+## 0.1.0a2 — Unreleased
+
+### Changed
+
+- Remove unused report-label and text-line protocol code from the alpha package.
+
+## 0.1.0a1 — 2026-08-31
 
 ### Added
 
@@ -21,4 +27,3 @@ All notable user-facing changes are documented here.
 
 - PAGE XML support is limited to the 2013-07-15 namespace.
 - Releases provide Python source and wheel artifacts, not signed desktop installers.
-- The maintainer must choose and add a project license before the first public release.

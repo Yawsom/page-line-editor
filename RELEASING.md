@@ -20,11 +20,12 @@ python -m twine check dist/*
 
 ## Publishing an alpha
 
-The first alpha version is `0.1.0a1`; its matching tag is `v0.1.0a1`.
+Choose the matching PEP 440 alpha version and tag. For example:
 
 ```bash
-git tag -a v0.1.0a1 -m "PAGE Line Editor 0.1.0a1"
-git push origin v0.1.0a1
+VERSION=0.1.0a2
+git tag -a "v$VERSION" -m "PAGE Line Editor $VERSION"
+git push origin "v$VERSION"
 ```
 
 Pushing a `v*` tag invokes the **Release** workflow. It verifies that the tag,
@@ -39,7 +40,7 @@ publishing a release.
 Alpha artifacts are installable Python distributions:
 
 ```bash
-python -m pip install ./page_line_editor-0.1.0a1-py3-none-any.whl
+python -m pip install ./page_line_editor-0.1.0a2-py3-none-any.whl
 page-line-editor
 ```
 
