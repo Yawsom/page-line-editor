@@ -2,7 +2,16 @@
 
 All notable user-facing changes are documented here.
 
-## 0.1.0a2 — Unreleased
+## Unreleased
+
+### Changed
+
+- Consolidated local manuscripts, ground truth, reports, corrected XML, and
+  audit history under the ignored `local_data/` workspace.
+- Hardened cross-platform Qt CI with the `minimal` platform backend and the
+  Linux EGL runtime dependency.
+
+## 0.1.0a2 — 2026-08-31
 
 ### Changed
 

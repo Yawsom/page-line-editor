@@ -11,6 +11,12 @@ The optional ground-truth Word file enables automatic correction. Choose an
 audit/history folder outside the live XML folder so original XML and correction
 reports remain separate.
 
+For a checkout of this repository, keep private working files under
+`local_data/`: use `transcribed_xml/` for source PAGE XML,
+`ground_truth/` for the optional DOCX, `corrected_xml/` for CLI output,
+`reports/` for report-only output, and `correction_history/` for audits. These
+folders are ignored and must not be committed.
+
 The editor pairs JPEG or PNG images with XML files by filename. Changes remain
 in memory until **Save**. Saving validates the PAGE XML, creates a timestamped
 backup, and atomically replaces the source XML.

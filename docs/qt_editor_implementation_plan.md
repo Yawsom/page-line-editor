@@ -1,9 +1,15 @@
-# PAGE Line Editor: implementation plan
+# PAGE Line Editor: historical implementation plan
 
-**Status:** implemented for the Python-environment MVP; packaging remains a next step  
-**Branch:** `codex/qt-xml-correction-editor`  
+**Status:** the Python-environment MVP, Apache-2.0 licensing, cross-platform
+CI, and Python alpha packaging are implemented. Native desktop installers
+remain future work.
+**Current integration branch:** `main`
 **Working title:** PAGE Line Editor  
 **Primary stack:** Python 3.11+ and PySide6 / Qt Widgets  
+
+This is the original implementation record. For current setup, workflows, and
+release policy, use the [README](../README.md), [user guide](user_guide.md),
+and [release guide](../RELEASING.md).
 
 ## 1. Outcome and scope
 
@@ -24,7 +30,8 @@ The application will support explicit save, undo/redo, dirty-state warnings, per
 - TIFF/multipage image support.
 - A virtual keyboard or custom keyboard shortcuts beyond normal application actions.
 - Editing PAGE namespace versions other than the repository's `2013-07-15` version.
-- Shipping signed standalone installers in this iteration. The code and build layout will be packaging-ready.
+- Shipping signed standalone installers. Python distributions are available;
+  native application packaging remains future work.
 
 The existing auto-correction behaviour is applied automatically to the in-memory document when a run finishes, but never written to XML until explicit Save. Each applied change remains reviewable: Keep confirms it and Reject restores the pre-correction value. Deferring manual split/merge must not make structural automatic changes silent.
 
@@ -49,7 +56,7 @@ The existing auto-correction behaviour is applied automatically to the in-memory
 The current implementation is healthy but is not yet an application service:
 
 - `align_report.py` is a 1,079-line module containing domain models, PAGE parsing, alignment, mutation, HTML/JSON generation, folder orchestration, console output, and the CLI.
-- All five existing regression tests pass on this branch.
+- At the time this plan was drafted, the five existing regression tests passed.
 - The parser reads full polygon/baseline points but the `XmlLine` model discards them and retains only an axis-aligned box and mean baseline Y. The editor needs full point geometry.
 - `run()` writes reports and corrected XML immediately and prints to the console. Preview/accept/reject requires a side-effect-free proposal API.
 - The current rewrite path can delete `Word` children, delete or merge `TextLine` elements, clear region-level Unicode, and reindex reading order. Manual saves must instead be narrow, explicit mutations.
@@ -57,7 +64,8 @@ The current implementation is healthy but is not yet an application service:
 - The PAGE namespace is hard-coded to `http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15`.
 - The local Transkribus samples include `Metadata/TranskribusMetadata` in the PAGE namespace, but the official 2013 XSD permits only Creator, Created, LastChange, and optional Comments in Metadata. They are therefore not strictly XSD-valid before any edit. Validation must preserve and explain this vendor metadata rather than stripping it or presenting a false green badge.
 - The existing geometric merge sorts/deduplicates baseline points. PAGE defines a baseline as a connected point sequence, so the refactor must preserve its order and never reverse it merely because the transcription is RTL.
-- Existing private manuscript XML, Word data, reports, and corrected output are ignored and untracked. However, the ignore rules cover only the four existing directories, not arbitrary project/image folders.
+- Existing private manuscript XML, Word data, reports, corrected output, and
+  audit history are ignored and untracked under `local_data/`.
 - The local unedited samples are uniformly 1500 x 1898, have one `TextRegion`, and contain line polygons, baselines, and line-level Unicode without `Word` children. Synthetic tests must cover broader PAGE structures without committing manuscript data.
 
 ## 4. User experience
@@ -224,14 +232,14 @@ An explicit save performs:
 No validation or I/O failure may damage the source. Manual saves use:
 
 ```text
-correction_history/
+local_data/correction_history/
   manual/YYYYMMDDTHHMMSSZ-<id>/originals/<name>.xml
 ```
 
 Auto-correction runs use:
 
 ```text
-correction_history/
+local_data/correction_history/
   auto/YYYYMMDDTHHMMSSZ-<id>/
     originals/<name>.xml
     reports/alignment.json
@@ -386,7 +394,7 @@ Use a pinned tested range rather than unbounded minimums. The initial compatibil
 
 ### 10.3 UI tests
 
-Using `pytest-qt`/QTest in offscreen mode:
+Using `pytest-qt`/QTest with the `minimal` Qt platform backend:
 
 - clicking polygon interior, border, and baseline selects the same line;
 - hit tolerance and handle size remain stable across zoom;
@@ -449,9 +457,10 @@ Run lint, type checks, core tests, and headless Qt tests on Windows, macOS, and 
 
 **Gate:** mixed valid/invalid folder completes without aborting good pages; partial failures are recoverable and accurately reported.
 
-### Phase 7 - open-source and standalone release preparation (next iteration)
+### Phase 7 - open-source and standalone release preparation
 
-- Finalize project license and third-party notices.
+- Finalize the project license and Python distribution metadata. **Completed:**
+  Apache License 2.0, alpha release checks, and cross-platform CI are in place.
 - Add a checked-in `pysidedeploy.spec` and platform-native CI builds using Qt's `pyside6-deploy`/Nuitka path.
 - Build separately on Windows and macOS, smoke-test on clean machines, sign Windows artifacts, and sign/notarize the macOS app/DMG.
 - Decide update strategy and release provenance/SBOM.

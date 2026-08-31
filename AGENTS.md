@@ -42,8 +42,9 @@ mypy src/page_line_editor
 pytest
 ```
 
-For UI tests, use the configured `pytest-qt` setup and offscreen Qt. Do not
-weaken a failing safety, XML, or privacy check merely to make the suite pass.
+For UI tests, use the configured `pytest-qt` setup with Qt's `minimal` platform
+backend. Linux CI installs `libegl1` before importing PySide6. Do not weaken a
+failing safety, XML, or privacy check merely to make the suite pass.
 
 ## Architecture Boundaries
 
@@ -66,6 +67,8 @@ files or running correction logic directly from widgets.
 - Keep uncertain `EXTRA` deletions pending until explicit reviewer acceptance.
 - Keep corrections reversible until explicit Save; never silently discard boxes.
 - Generate test XML, images, and DOCX fixtures only in temporary directories.
+- Keep local manuscripts, ground truth, reports, corrected XML, and audit
+  history under the ignored `local_data/` workspace.
 - Never commit manuscript XML, images, DOCX files, reports, backups, correction
   history, manifests, or other generated project data.
 - Run `python scripts/check_no_private_data.py` before staging or committing.

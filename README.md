@@ -146,14 +146,19 @@ pytest
 CI covers Python 3.11 and 3.13 on Windows, macOS, and Linux. Runtime behavior is
 offline; no network request is made by the editor.
 
-## Packaging and open-source next steps
+## Packaging and distribution
 
-Qt documents `pyside6-deploy` as its supported cross-platform freezing path for
-Windows, macOS, and Linux. A later release should add reproducible platform jobs,
-application icons, signing/notarization, installer smoke tests, and bundled
-license notices. PySide6 is available under LGPLv3/GPLv3 or a commercial Qt
-license; the application project's own open-source license still needs an
-explicit maintainer decision before public release.
+The project is licensed under [Apache License 2.0](LICENSE). CI runs privacy,
+lint, type, and test checks on Python 3.11 and 3.13 across Windows, macOS, and
+Linux. Alpha releases attach a wheel and source archive; see
+[RELEASING.md](RELEASING.md) for the release process.
+
+There is not yet a native desktop installer. Qt documents `pyside6-deploy` as
+its supported cross-platform freezing path; application icons, native package
+builds, signing/notarization, installer smoke tests, and bundled third-party
+notices remain later release work. PySide6 is available under LGPLv3/GPLv3 or a
+commercial Qt license, so distribution work must retain the applicable Qt
+notices.
 
 The validator bundles the official PRImA PAGE 2013 XSD. Strict validation reports
 vendor-only Transkribus metadata; the separate editable-core result validates a

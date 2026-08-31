@@ -2,6 +2,9 @@
 
 Primary sources checked on 2026-08-27:
 
+**Current status:** Python alpha packaging and cross-platform CI are now in
+place. Native installers, signing, and notarization remain future release work.
+
 - [Qt for Python documentation](https://doc.qt.io/qtforpython-6/) identifies
   PySide6 as the official Qt 6 Python binding and publishes it under LGPLv3,
   GPLv3, or the Qt commercial license.
