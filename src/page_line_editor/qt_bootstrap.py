@@ -19,10 +19,13 @@ from pathlib import Path
 def _clear_hidden_flags(root: Path) -> None:
     """Qt skips macOS files carrying UF_HIDDEN, even when names are normal."""
 
+    chflags = getattr(os, "chflags", None)
+    if not callable(chflags):
+        return
     for path in (root, *root.rglob("*")):
         flags = getattr(path.stat(), "st_flags", 0)
         if flags & stat.UF_HIDDEN:
-            os.chflags(path, flags & ~stat.UF_HIDDEN)
+            chflags(path, flags & ~stat.UF_HIDDEN)
 
 
 def prepare_qt_plugins() -> Path | None:

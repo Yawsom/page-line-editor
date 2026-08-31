@@ -117,6 +117,8 @@ class ReviewPanel(QWidget):
     def _rebuild_corrections(self, *_args: object) -> None:
         while self.review_layout.count() > 1:
             item = self.review_layout.takeAt(0)
+            if item is None:
+                break
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
