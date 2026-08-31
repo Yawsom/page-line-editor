@@ -5,15 +5,9 @@ __pycache__/
 .DS_Store
 .python-version
 
-# Keep folder structure; ignore personal/generated contents
-ground_truth/**
-!ground_truth/.gitkeep
-transcribed_xml/**
-!transcribed_xml/.gitkeep
-corrected_xml/**
-!corrected_xml/.gitkeep
-reports/**
-!reports/.gitkeep
+# Keep personal manuscripts and generated output in one local-only workspace.
+local_data/**
+!local_data/.gitkeep
 
 # Manuscript/project data must never be committed. Test fixtures are generated
 # in temporary directories; the public PAGE schema is stored as .xsd.

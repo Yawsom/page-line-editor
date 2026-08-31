@@ -117,6 +117,11 @@ The historical command-line workflow remains available during the transition:
 python align_report.py --help
 ```
 
+Local manuscripts and generated output live under `local_data/` to keep the
+repository root tidy: `ground_truth/`, `transcribed_xml/`, `corrected_xml/`,
+`reports/`, and `correction_history/` are its subfolders. These files remain
+ignored and must never be committed.
+
 ## Safety and privacy
 
 Manuscript XML, Word files, images, reports, and correction history are ignored

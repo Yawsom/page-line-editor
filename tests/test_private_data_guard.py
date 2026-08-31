@@ -13,6 +13,10 @@ _SPEC.loader.exec_module(_GUARD)
 
 
 def test_generated_html_and_manifest_are_private_except_docs() -> None:
+    assert (
+        _GUARD.violation("local_data/readme.txt")
+        == "content inside a private/generated data directory"
+    )
     assert _GUARD.violation("reports/pages/93v.html") == "generated artefact .html"
     assert _GUARD.violation("alignment.json") == "generated correction report"
     assert _GUARD.violation("manifest.json") == "generated correction report"

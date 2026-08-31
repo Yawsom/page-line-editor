@@ -19,7 +19,15 @@ PRIVATE_SUFFIXES = {
 PRIVATE_PARTS = {"correction_history", "backups"}
 GENERATED_NAMES = {"alignment.json", "index.html", "manifest.json"}
 GENERATED_SUFFIXES = {".html"}
-DATA_DIRS = {"ground_truth", "transcribed_xml", "corrected_xml", "reports"}
+DATA_DIRS = {
+    "local_data",
+    # Retain these legacy locations as protected names so an accidental move
+    # back to the repository root can never add private data to Git.
+    "ground_truth",
+    "transcribed_xml",
+    "corrected_xml",
+    "reports",
+}
 ALLOWED_ROOTS = {"docs"}
 
 

@@ -1068,9 +1068,11 @@ def folio_sort_key(folio: str) -> tuple[int, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gt", type=Path, default=Path("ground_truth/S155-transcription.docx"))
-    parser.add_argument("--xml-dir", type=Path, default=Path("transcribed_xml"))
-    parser.add_argument("--out", type=Path, default=Path("reports"))
+    parser.add_argument(
+        "--gt", type=Path, default=Path("local_data/ground_truth/S155-transcription.docx")
+    )
+    parser.add_argument("--xml-dir", type=Path, default=Path("local_data/transcribed_xml"))
+    parser.add_argument("--out", type=Path, default=Path("local_data/reports"))
     parser.add_argument(
         "--corrected-dir",
         type=Path,
