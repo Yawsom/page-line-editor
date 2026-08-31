@@ -22,7 +22,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      QT_QPA_PLATFORM: offscreen
+      # The offscreen backend is not shipped by every PySide6 wheel. The
+      # minimal backend is available across GitHub's Linux, macOS, and Windows
+      # runners and supports the widget tests without opening a window.
+      QT_QPA_PLATFORM: minimal
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
