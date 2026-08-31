@@ -60,6 +60,9 @@ def apply_theme(app: QApplication, theme: Theme | str) -> Theme:
             "QToolBar#toolsToolbar { spacing: 3px; padding: 5px; }"
             "QToolBar#toolsToolbar QToolButton { padding: 7px; border-radius: 5px; }"
             "QToolBar#toolsToolbar QToolButton:checked { background: palette(highlight); }"
+            "QToolButton:focus, QPushButton:focus, QComboBox:focus { "
+            "border: 2px solid palette(highlight); }"
+            "QTreeWidget:focus { border: 2px solid palette(highlight); }"
             "QPushButton { padding: 5px 10px; }"
         )
     return selected

@@ -175,6 +175,60 @@ def test_vertex_handle_remains_live_through_drag(qtbot) -> None:  # type: ignore
     assert not handle.isVisible() or handle in item._handles
 
 
+def test_selected_vertex_wins_over_an_overlapping_later_line(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, stack = make_view(qtbot)
+    covering_line = SampleLine(
+        id="line-2",
+        text="overlapping line",
+        polygon=((5, 5), (110, 5), (110, 70), (5, 70)),
+        baseline=((10, 60), (100, 60)),
+    )
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), covering_line])
+    first, second = view.page_scene.line_items
+    first.setSelected(True)
+    handle = first._handles[0]
+    start = view.mapFromScene(handle.scenePos())
+    destination = view.mapFromScene(QPointF(27, 27))
+
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), destination, delay=20)
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=destination)
+
+    assert first.isSelected()
+    assert not second.isSelected()
+    assert first.adapter.polygon[0] != (20.0, 20.0)
+    assert stack.count() == 1
+
+
+def test_vertex_priority_includes_non_active_multi_selected_line(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, stack = make_view(qtbot)
+    covering_line = SampleLine(
+        id="line-2",
+        text="overlapping selected line",
+        polygon=((5, 5), (110, 5), (110, 70), (5, 70)),
+        baseline=((10, 60), (100, 60)),
+    )
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [sample_line(), covering_line])
+    first, second = view.page_scene.line_items
+    first.setSelected(True)
+    second.setSelected(True)
+    assert view.page_scene.selected_line_item() is second
+    handle = first._handles[0]
+    start = view.mapFromScene(handle.scenePos())
+    destination = view.mapFromScene(QPointF(27, 27))
+
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), destination, delay=20)
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=destination)
+
+    assert first.isSelected()
+    assert second.isSelected()
+    assert first.adapter.polygon[0] != (20.0, 20.0)
+    assert stack.count() == 1
+
+
 def test_editor_font_and_width_follow_selected_geometry(qtbot) -> None:  # type: ignore[no-untyped-def]
     view, _ = make_view(qtbot)
     item = view.page_scene.line_items[0]
@@ -185,11 +239,31 @@ def test_editor_font_and_width_follow_selected_geometry(qtbot) -> None:  # type:
     large_font = view.overlay.editor.font().pixelSize()
     line_rect = view.mapFromScene(item.sceneBoundingRect()).boundingRect()
 
+    assert small_font >= 16
     assert large_font > small_font
     assert view.overlay.width() == max(320, line_rect.width())
     assert "\n" not in view.overlay.editor.text()
     view.overlay.editor.setPlainText("سطر\nواحد")
     assert view.overlay.editor.toPlainText() == "سطر واحد"
+
+
+def test_editor_keeps_a_readable_font_for_narrow_long_transcription(
+    qtbot,
+) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    narrow_line = SampleLine(
+        id="narrow-line",
+        text="نص عربي طويل للغاية يحتاج إلى البقاء مقروءا أثناء التحرير",
+        polygon=((20, 20), (56, 20), (56, 42), (20, 42)),
+        baseline=((22, 36), (54, 36)),
+    )
+    pixmap = view.page_scene.image_item.pixmap()  # type: ignore[union-attr]
+    view.set_page(pixmap, [narrow_line])
+    item = view.page_scene.line_items[0]
+    item.setSelected(True)
+    view.update_overlay_position()
+
+    assert view.overlay.editor.font().pixelSize() >= 16
 
 
 def test_pan_tool_left_drags_page_background(qtbot) -> None:  # type: ignore[no-untyped-def]

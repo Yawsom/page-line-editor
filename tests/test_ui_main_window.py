@@ -10,7 +10,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeySequence, QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QFrame, QLabel
+from PySide6.QtWidgets import QApplication, QFrame, QLabel
 
 from page_line_editor.ui.canvas import EditMode
 from page_line_editor.ui.main_window import MainWindow
@@ -57,12 +57,19 @@ def test_toolbar_exposes_save_correction_and_geometry_modes(
 
 def test_left_tool_palette_switches_canvas_interaction(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = make_window(qtbot)
+    pan_button = window.tools_toolbar.widgetForAction(window.mode_actions[EditMode.PAN])
+    assert pan_button is not None
+    assert pan_button.accessibleName() == "Pan Canvas"
+    assert window.mode_indicator.text() == "Mode: Select / Edit"
+
     window.mode_actions[EditMode.PAN].trigger()
     assert window.canvas.edit_mode is EditMode.PAN
     assert window.mode_actions[EditMode.PAN].isChecked()
+    assert window.mode_indicator.text() == "Mode: Pan Canvas"
     window.mode_actions[EditMode.MOVE_LINE].trigger()
     assert window.canvas.edit_mode is EditMode.MOVE_LINE
     assert window.mode_actions[EditMode.MOVE_LINE].isChecked()
+    assert window.mode_indicator.text() == "Mode: Move Whole Line"
 
 
 @pytest.mark.parametrize("mode", [mode for mode in EditMode if mode is not EditMode.SELECT])
@@ -406,6 +413,7 @@ def test_theme_switch_preserves_active_editor_buffer(qtbot) -> None:  # type: ig
     window.set_theme(Theme.DARK)
     window.set_theme(Theme.LIGHT)
     assert window.canvas.overlay.editor.toPlainText() == "غير محفوظ"
+    assert "QToolButton:focus" in QApplication.instance().styleSheet()
     # Do not let qtbot's teardown exercise the real interactive close warning.
     window.canvas.overlay.cancel()
 

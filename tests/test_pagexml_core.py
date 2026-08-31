@@ -1,7 +1,10 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from lxml import etree
@@ -90,6 +93,93 @@ def test_save_creates_exact_backup_then_replaces_atomically(tmp_path: Path) -> N
     assert "manual" in result.backup_path.parts
     assert b"\xd9\x85\xd8\xad\xd9\x81\xd9\x88\xd8\xb8" in source.read_bytes()
     assert not document.is_dirty
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not use POSIX mode bits")
+def test_atomic_save_preserves_source_permissions(tmp_path: Path) -> None:
+    source = tmp_path / "page.xml"
+    source.write_bytes(page_xml(transkribus=False))
+    source.chmod(0o640)
+    document = parse_page(source)
+    document.lines[0].text = "محفوظ"
+
+    SaveService(tmp_path / "history").save(document)
+
+    assert stat.S_IMODE(source.stat().st_mode) == 0o640
+
+
+def test_save_wraps_backup_failure_without_touching_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "page.xml"
+    original = page_xml(transkribus=False)
+    source.write_bytes(original)
+    document = parse_page(source)
+    document.lines[0].text = "should remain in memory"
+    service = SaveService(tmp_path / "history")
+
+    def fail_backup(_source: str | Path) -> NoReturn:
+        raise OSError("history is unavailable")
+
+    monkeypatch.setattr(service.history, "backup_manual", fail_backup)
+
+    with pytest.raises(SaveError, match="Could not back up"):
+        service.save(document)
+
+    assert source.read_bytes() == original
+    assert document.is_dirty
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not fsync directories")
+def test_directory_fsync_failure_does_not_report_a_failed_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "page.xml"
+    source.write_bytes(page_xml(transkribus=False))
+    document = parse_page(source)
+    document.lines[0].text = "محفوظ"
+    real_fsync = os.fsync
+    calls = 0
+
+    def fail_directory_fsync(descriptor: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("directory fsync unsupported")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fail_directory_fsync)
+
+    result = SaveService(tmp_path / "history").save(document)
+
+    assert calls == 2
+    assert result.source_path == source
+    assert result.durability_warning is not None
+    assert "directory fsync unsupported" in result.durability_warning
+    assert b"\xd9\x85\xd8\xad\xd9\x81\xd9\x88\xd8\xb8" in source.read_bytes()
+    assert not document.is_dirty
+
+
+def test_temp_cleanup_failure_does_not_mask_atomic_save_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "page.xml"
+    source.write_bytes(page_xml(transkribus=False))
+    document = parse_page(source)
+    document.lines[0].text = "not saved"
+
+    def fail_replace(_source: str | Path, _destination: str | Path) -> NoReturn:
+        raise OSError("replace failed")
+
+    def fail_cleanup(_path: Path, *, missing_ok: bool = False) -> NoReturn:
+        del missing_ok
+        raise OSError("cleanup failed")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+
+    with pytest.raises(SaveError, match="replace failed"):
+        SaveService(tmp_path / "history").save(document)
 
 
 def test_successful_text_save_updates_word_content_metadata(tmp_path: Path) -> None:

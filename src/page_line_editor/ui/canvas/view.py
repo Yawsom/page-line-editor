@@ -365,7 +365,33 @@ class PageCanvasView(QGraphicsView):
             self._begin_pan(event, event.button())
             return
         if event.button() == Qt.MouseButton.LeftButton and self._mode is EditMode.SELECT:
-            clicked = self.itemAt(event.position().toPoint())
+            viewport_position = event.position().toPoint()
+            active_line = self.page_scene.selected_line_item()
+            selected_handles = [
+                item
+                for item in self.items(viewport_position)
+                if isinstance(item, VertexHandle) and item.owner.isSelected()
+            ]
+            selected_handle = next(
+                (handle for handle in selected_handles if handle.owner is active_line),
+                selected_handles[0] if selected_handles else None,
+            )
+            if selected_handle is not None:
+                owner = selected_handle.owner
+                original_z = owner.zValue()
+                owner.setZValue(
+                    max(
+                        (item.zValue() for item in self.page_scene.line_items),
+                        default=original_z,
+                    )
+                    + 1
+                )
+                try:
+                    super().mousePressEvent(event)
+                finally:
+                    owner.setZValue(original_z)
+                return
+            clicked = self.itemAt(viewport_position)
             if clicked is None or isinstance(clicked, QGraphicsPixmapItem):
                 self.page_scene.clearSelection()
                 event.accept()

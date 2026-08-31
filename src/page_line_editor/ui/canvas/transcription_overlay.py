@@ -306,7 +306,7 @@ class TranscriptionOverlay(QFrame):
         geometry_width = max(320, line_rect.width())
         width = min(geometry_width, available, self.maximumWidth())
         line_thickness = max(20, min(line_rect.width(), line_rect.height()))
-        font_size = min(52, max(15, round(line_thickness * 0.50)))
+        font_size = min(52, max(16, round(line_thickness * 0.50)))
         editor_font = self.editor.font()
         editor_font.setPixelSize(font_size)
         content_width = max(80, width - self.addition_gutter.width() - 20)
@@ -317,7 +317,7 @@ class TranscriptionOverlay(QFrame):
             1,
         )
         if widest > content_width:
-            editor_font.setPixelSize(max(12, int(font_size * content_width / widest)))
+            editor_font.setPixelSize(max(16, int(font_size * content_width / widest)))
         self.editor.setFont(editor_font)
         self.original_label.setFont(editor_font)
         row_height = max(38, QFontMetrics(editor_font).height() + 14)

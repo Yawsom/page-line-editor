@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDockWidget,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -75,7 +76,12 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self._build_canvas_shortcuts()
         self._build_toolbar()
+        self.mode_indicator = QLabel(self)
+        self.mode_indicator.setObjectName("modeIndicator")
+        self.mode_indicator.setAccessibleName("Current editor mode")
+        self.statusBar().addPermanentWidget(self.mode_indicator)
         self._connect_signals()
+        self._update_mode_indicator()
         self.statusBar().showMessage("Open a project to begin")
         self._restore_preferences()
 
@@ -171,7 +177,7 @@ class MainWindow(QMainWindow):
         for label, mode, shortcut, icon_name in mode_specs:
             action = self._action(
                 label,
-                lambda checked=False, value=mode: self.canvas.set_edit_mode(value),
+                lambda checked=False, value=mode: self._set_edit_mode(value),
                 shortcut,
                 tooltip=f"{label} ({shortcut})",
                 checkable=True,
@@ -254,6 +260,10 @@ class MainWindow(QMainWindow):
             self.fit_action,
         ):
             toolbar.addAction(action)
+            button = toolbar.widgetForAction(action)
+            if button is not None:
+                button.setAccessibleName(action.text())
+                button.setAccessibleDescription(action.statusTip())
         toolbar.addSeparator()
         self.view_menu = QMenu("View", toolbar)
         self.view_menu.addActions(
@@ -292,6 +302,10 @@ class MainWindow(QMainWindow):
             if index in (3, 5):
                 self.tools_toolbar.addSeparator()
             self.tools_toolbar.addAction(action)
+            button = self.tools_toolbar.widgetForAction(action)
+            if button is not None:
+                button.setAccessibleName(action.text())
+                button.setAccessibleDescription(action.statusTip())
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, self.tools_toolbar)
 
     @staticmethod
@@ -483,6 +497,7 @@ class MainWindow(QMainWindow):
                 not self._transcription_mode or mode in {EditMode.PAN, EditMode.SELECT}
             )
         self.tools_toolbar.setVisible(not self._transcription_mode)
+        self._update_mode_indicator()
         self._update_overlays()
         label = "Transcription mode" if self._transcription_mode else "Geometry mode"
         self.statusBar().showMessage(f"{label} · Ctrl/Cmd+T to switch", 4000)
@@ -491,6 +506,17 @@ class MainWindow(QMainWindow):
         if self._transcription_mode:
             self.transcription_mode_action.trigger()
         self.mode_actions[EditMode(mode)].trigger()
+
+    def _set_edit_mode(self, mode: EditMode | str) -> None:
+        self.canvas.set_edit_mode(mode)
+        self._update_mode_indicator()
+
+    def _update_mode_indicator(self) -> None:
+        if self._transcription_mode:
+            self.mode_indicator.setText("Mode: Transcription")
+            return
+        mode = EditMode(self.canvas.edit_mode)
+        self.mode_indicator.setText(f"Mode: {self.mode_actions[mode].text()}")
 
     def set_correction_progress(self, value: int | None, status: str = "") -> None:
         self.review_panel.set_correction_progress(value, status)

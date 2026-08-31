@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import os
+import shutil
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +33,38 @@ class SaveResult:
     backup_path: Path
     validation: ValidationReport
     bytes_written: int
+    durability_warning: str | None = None
+
+
+_UNSUPPORTED_DIRECTORY_SYNC_ERRORS = {
+    errno.EINVAL,
+    getattr(errno, "ENOTSUP", errno.EINVAL),
+    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+}
+
+
+def _sync_directory(directory: Path) -> str | None:
+    """Best-effort directory durability without misreporting a committed save."""
+
+    if os.name == "nt":
+        return None
+    directory_fd: int | None = None
+    error: OSError | None = None
+    try:
+        directory_fd = os.open(directory, os.O_RDONLY)
+        os.fsync(directory_fd)
+    except OSError as exc:
+        error = exc
+    finally:
+        if directory_fd is not None:
+            try:
+                os.close(directory_fd)
+            except OSError as exc:
+                if error is None:
+                    error = exc
+    if error is None or error.errno in _UNSUPPORTED_DIRECTORY_SYNC_ERRORS:
+        return None
+    return f"the file was replaced, but its directory could not be synced: {error}"
 
 
 class SaveService:
@@ -50,7 +85,10 @@ class SaveService:
         if not validation.can_save:
             raise ValidationFailed(validation)
         source = document.source_path
-        backup = self.history.backup_manual(source)
+        try:
+            backup = self.history.backup_manual(source)
+        except OSError as exc:
+            raise SaveError(f"Could not back up {source} before saving: {exc}") from exc
         temp_path: Path | None = None
         try:
             descriptor, raw_temp = tempfile.mkstemp(
@@ -58,24 +96,22 @@ class SaveService:
             )
             temp_path = Path(raw_temp)
             with os.fdopen(descriptor, "wb") as stream:
+                shutil.copymode(source, temp_path)
                 stream.write(candidate)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp_path, source)
             temp_path = None
-            # Best-effort directory durability. Windows does not support opening
-            # a directory as a normal file descriptor.
-            if os.name != "nt":
-                directory_fd = os.open(source.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
         except OSError as exc:
             raise SaveError(f"Could not atomically save {source}: {exc}") from exc
         finally:
             if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
+                with suppress(OSError):
+                    temp_path.unlink(missing_ok=True)
+        # The replace above is the transaction boundary. Directory fsync adds
+        # crash durability on platforms that support it, but a failure here
+        # must not claim the already-replaced source was not saved.
+        durability_warning = _sync_directory(source.parent)
         document.mark_clean(xml_tree=candidate_tree)
         for line_id in text_edited_ids:
             try:
@@ -84,4 +120,4 @@ class SaveService:
                 # A future compound operation may delete a line after editing it.
                 continue
         refresh_xml_paths(document)
-        return SaveResult(source, backup, validation, len(candidate))
+        return SaveResult(source, backup, validation, len(candidate), durability_warning)

@@ -3,6 +3,11 @@
 An offline PySide6 desktop editor for PAGE 2013 XML transcription, line polygons,
 baselines, and automatic Arabic ground-truth correction.
 
+> **Early alpha:** this project is ready for evaluator feedback, not production
+> manuscript processing. Keep independent backups of source XML and review every
+> automatic correction before saving. See [RELEASING.md](RELEASING.md) for the
+> guarded release process and current alpha limitations.
+
 The application opens separate image and XML folders, pairs JPEG/PNG pages with
 their XML, overlays every `TextLine/Coords` polygon and `TextLine/Baseline`, and
 keeps an Arabic right-to-left transcription editor anchored beneath the selected

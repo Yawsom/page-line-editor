@@ -306,9 +306,10 @@ class EditorController(QObject):
         self.window.set_correction_review(None)
         self._refresh_document()
         self._show_validation_report(result.validation)
-        self.window.statusBar().showMessage(
-            f"Saved {result.source_path.name}; backup: {result.backup_path}", 7000
-        )
+        status = f"Saved {result.source_path.name}; backup: {result.backup_path}"
+        if result.durability_warning is not None:
+            status = f"{status} · Warning: {result.durability_warning}"
+        self.window.statusBar().showMessage(status, 7000)
 
     @Slot()
     def auto_correct_page(self) -> None:
