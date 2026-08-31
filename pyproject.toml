@@ -35,8 +35,8 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Yawsom/medieval-arabic-xml-alignment"
-Issues = "https://github.com/Yawsom/medieval-arabic-xml-alignment/issues"
+Repository = "https://github.com/Yawsom/page-line-editor"
+Issues = "https://github.com/Yawsom/page-line-editor/issues"
 
 [project.scripts]
 page-line-editor = "page_line_editor.__main__:main"
