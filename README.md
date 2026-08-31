@@ -80,6 +80,42 @@ python -m pip install --force-reinstall --no-deps \
   PySide6_Addons==6.10.1 shiboken6==6.10.1
 ```
 
+## Recommended local project layout
+
+Keep every manuscript, transcription, report, and audit file outside the
+tracked source tree. This checkout reserves the ignored `local_data/` folder for
+that purpose:
+
+```text
+local_data/
+  images/                         # page images selected in Open Project
+    93v.jpg
+    94r.png
+  transcribed_xml/                # live PAGE XML selected in Open Project
+    93v.xml
+    94r.xml
+  ground_truth/                   # optional Word ground truth
+    transcription.docx
+  correction_history/             # automatic backups, manifests, and audits
+  reports/                        # legacy CLI report-only output
+  corrected_xml/                  # legacy CLI corrected-XML output
+```
+
+For the smoothest pairing, give each page image and its PAGE XML the same stem:
+`93v.jpg` with `93v.xml`, for example. The folders named above are ignored by
+Git; do not add real manuscript data to another tracked folder.
+
+### File and folder requirements
+
+| Item | Required | Accepted format and setup |
+| --- | --- | --- |
+| Image folder | Yes | A directory containing one page per `.jpg`, `.jpeg`, or `.png` file (case-insensitive). TIFF, PDF, and multipage-image input are not supported. Use unique stems and pair `93v.jpg` with `93v.xml` where possible. |
+| PAGE XML folder | Yes | A separate directory containing `.xml` files (case-insensitive) in the PAGE 2013-07-15 namespace. Each XML must resolve to one image: exact matching stem is preferred; case-insensitive matching and `Page/@imageFilename` are compatibility fallbacks shown in diagnostics. |
+| Ground-truth file | Optional | One `.docx` file, not `.doc`, PDF, or plain text. Use a paragraph containing a numeric folio key such as `[93v]` or `[94r]`; every following non-empty paragraph is one line until the next folio key. The key must match an image or XML stem. |
+| Correction-history folder | Yes | A writable directory outside the live XML folder. The app stores timestamped exact backups, original XML, JSON/HTML audit reports, and decision manifests here. The default is a `correction_history/` sibling of the chosen XML folder. |
+| CLI report folder | CLI only | A writable output directory for `align_report.py` HTML/JSON reports; the recommended location is `local_data/reports/`. |
+| CLI corrected-XML folder | CLI only | A writable output directory for `align_report.py --corrected-dir`; it must be different from the source XML folder. Use `local_data/corrected_xml/`. |
+
 In the application, choose **Open Project** and provide:
 
 1. the JPEG/PNG folder;
@@ -116,11 +152,6 @@ The historical command-line workflow remains available during the transition:
 ```bash
 python align_report.py --help
 ```
-
-Local manuscripts and generated output live under `local_data/` to keep the
-repository root tidy: `ground_truth/`, `transcribed_xml/`, `corrected_xml/`,
-`reports/`, and `correction_history/` are its subfolders. These files remain
-ignored and must never be committed.
 
 ## Safety and privacy
 
