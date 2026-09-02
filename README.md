@@ -195,3 +195,6 @@ The validator bundles the official PRImA PAGE 2013 XSD. Strict validation report
 vendor-only Transkribus metadata; the separate editable-core result validates a
 temporary clone with only the known `TranskribusMetadata` extension removed. The
 real XML always retains that metadata.
+
+---
+Credits : Youssef Elkomy & Robert Turnbull in collaboration with MDAP (Melbourne Data Analytics Platform) 
