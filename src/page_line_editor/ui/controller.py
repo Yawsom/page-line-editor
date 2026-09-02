@@ -147,6 +147,42 @@ class _ReviewDecisionCommand(QUndoCommand):
         self.notify()
 
 
+class _ReadingOrderCommand(QUndoCommand):
+    """Undoable regional TextLine ordering that persists through PAGE save."""
+
+    def __init__(
+        self,
+        document: PageDocument,
+        line_id: str,
+        direction: int,
+        notify: Callable[[str], None],
+    ) -> None:
+        line = document.line_by_id(line_id)
+        region = next(region for region in document.regions if region.id == line.region_id)
+        before = tuple(item.id for item in region.lines)
+        current = before.index(line_id)
+        target = max(0, min(len(before) - 1, current + direction))
+        reordered = list(before)
+        reordered.pop(current)
+        reordered.insert(target, line_id)
+        super().__init__("Move line in reading order")
+        self.document = document
+        self.region_id = region.id
+        self.line_id = line_id
+        self.before = before
+        self.after = tuple(reordered)
+        self.notify = notify
+        self.setObsolete(self.before == self.after)
+
+    def redo(self) -> None:
+        self.document.restore_region_order(self.region_id, self.after)
+        self.notify(self.line_id)
+
+    def undo(self) -> None:
+        self.document.restore_region_order(self.region_id, self.before)
+        self.notify(self.line_id)
+
+
 @dataclass(frozen=True, slots=True)
 class _BatchProposal:
     pair: PagePair
@@ -205,6 +241,7 @@ class EditorController(QObject):
         window.rejectCorrectionRequested.connect(self.reject_line)
         window.keepPageCorrectionsRequested.connect(self.keep_page)
         window.rejectPageCorrectionsRequested.connect(self.reject_page)
+        window.readingOrderMoveRequested.connect(self.move_line_in_reading_order)
         window.normalize_action.toggled.connect(self._nfc_toggled)
 
     @Slot(object)
@@ -403,6 +440,25 @@ class EditorController(QObject):
         if self._task is not None:
             self._task.token.cancel()
             self.window.set_correction_progress(0, "Cancelling…")
+
+    @Slot(str, int)
+    def move_line_in_reading_order(self, line_id: str, direction: int) -> None:
+        document = self.session.document
+        if document is None or direction == 0:
+            return
+        try:
+            command = _ReadingOrderCommand(
+                document, line_id, direction, self._refresh_document
+            )
+        except (KeyError, StopIteration) as error:
+            self._error("Could not change reading order", str(error))
+            return
+        if command.isObsolete():
+            self.window.statusBar().showMessage(
+                "Line is already at that reading-order boundary.", 4000
+            )
+            return
+        self.window.undo_stack.push(command)
 
     def _apply_page_proposal(self, proposal: PageCorrectionProposal) -> None:
         if self._task_cancelled():

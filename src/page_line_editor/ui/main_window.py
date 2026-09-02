@@ -6,7 +6,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
     rejectPageCorrectionsRequested = Signal()
     lineTextChanged = Signal(str, str)
     lineGeometryChanged = Signal(str, object, object)
+    readingOrderMoveRequested = Signal(str, int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -72,6 +73,14 @@ class MainWindow(QMainWindow):
         self._project_paths: ProjectPaths | None = None
         self._theme = Theme.SYSTEM
         self._transcription_mode = False
+        self._mode_key_actions: dict[int, EditMode] = {}
+        self._pending_mode_key: int | None = None
+        self._temporary_mode: EditMode | None = None
+        self._previous_mode: EditMode | None = None
+        self._mode_hold_timer = QTimer(self)
+        self._mode_hold_timer.setSingleShot(True)
+        self._mode_hold_timer.setInterval(275)
+        self._mode_hold_timer.timeout.connect(self._activate_temporary_mode)
         self._build_docks()
         self._build_actions()
         self._build_canvas_shortcuts()
@@ -81,6 +90,9 @@ class MainWindow(QMainWindow):
         self.mode_indicator.setAccessibleName("Current editor mode")
         self.statusBar().addPermanentWidget(self.mode_indicator)
         self._connect_signals()
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
         self._update_mode_indicator()
         self.statusBar().showMessage("Open a project to begin")
         self._restore_preferences()
@@ -178,14 +190,26 @@ class MainWindow(QMainWindow):
             action = self._action(
                 label,
                 lambda checked=False, value=mode: self._set_edit_mode(value),
-                shortcut,
                 tooltip=f"{label} ({shortcut})",
                 checkable=True,
             )
+            # These keys support both tap-to-select and hold-to-use.  QAction
+            # shortcuts activate on press only, so they cannot restore the
+            # previous tool on release; the application event filter below
+            # owns this small gesture instead.
             action.setIcon(QIcon(str(icon_directory / icon_name)))
             self.mode_group.addAction(action)
             self.mode_actions[mode] = action
         self.mode_actions[EditMode.SELECT].setChecked(True)
+        self._mode_key_actions = {
+            int(Qt.Key.Key_H): EditMode.PAN,
+            int(Qt.Key.Key_V): EditMode.SELECT,
+            int(Qt.Key.Key_M): EditMode.MOVE_LINE,
+            int(Qt.Key.Key_A): EditMode.ADD_VERTEX,
+            int(Qt.Key.Key_D): EditMode.DELETE_VERTEX,
+            int(Qt.Key.Key_P): EditMode.REPLACE_POLYGON,
+            int(Qt.Key.Key_B): EditMode.REPLACE_BASELINE,
+        }
 
         self.correct_page_action = self._action(
             "Auto-correct Page",
@@ -196,6 +220,22 @@ class MainWindow(QMainWindow):
             "Auto-correct Folder",
             self.autoCorrectBatchRequested,
             tooltip="Apply automatic correction to the project in memory",
+        )
+        self.move_line_earlier_action = self._action(
+            "Move Line Earlier", lambda: self._move_selected_line(-1),
+            QKeySequence("Ctrl+Alt+Up"),
+            "Move selected line one position earlier in its region's reading order",
+        )
+        self.move_line_earlier_action.setShortcuts(
+            (QKeySequence("Ctrl+Alt+Up"), QKeySequence("Meta+Alt+Up"))
+        )
+        self.move_line_later_action = self._action(
+            "Move Line Later", lambda: self._move_selected_line(1),
+            QKeySequence("Ctrl+Alt+Down"),
+            "Move selected line one position later in its region's reading order",
+        )
+        self.move_line_later_action.setShortcuts(
+            (QKeySequence("Ctrl+Alt+Down"), QKeySequence("Meta+Alt+Down"))
         )
 
     def _build_canvas_shortcuts(self) -> None:
@@ -287,6 +327,10 @@ class MainWindow(QMainWindow):
             toolbar, "Auto-correct ▾", self.correction_menu
         )
         toolbar.addWidget(self.correction_button)
+        self.line_menu = QMenu("Line", toolbar)
+        self.line_menu.addActions((self.move_line_earlier_action, self.move_line_later_action))
+        self.line_button = self._toolbar_menu_button(toolbar, "Line", self.line_menu)
+        toolbar.addWidget(self.line_button)
         self.theme_combo = QComboBox(toolbar)
         self.theme_combo.setAccessibleName("Application theme")
         self.theme_combo.addItems([theme.value for theme in Theme])
@@ -335,6 +379,7 @@ class MainWindow(QMainWindow):
         )
         self.canvas.zoomChanged.connect(self._update_status)
         self.canvas.rotationChanged.connect(self._update_status)
+        self.canvas.selectedLineChanged.connect(self._update_status)
         self.undo_stack.cleanChanged.connect(self._update_dirty_state)
         self.theme_combo.currentTextChanged.connect(self.set_theme)
         self.review_panel.autoCorrectPageRequested.connect(self.autoCorrectPageRequested)
@@ -508,8 +553,78 @@ class MainWindow(QMainWindow):
         self.mode_actions[EditMode(mode)].trigger()
 
     def _set_edit_mode(self, mode: EditMode | str) -> None:
-        self.canvas.set_edit_mode(mode)
+        selected_mode = EditMode(mode)
+        self.canvas.set_edit_mode(selected_mode)
         self._update_mode_indicator()
+        guidance = {
+            EditMode.ADD_VERTEX: "Click a polygon or baseline segment to add a visible vertex.",
+            EditMode.DELETE_VERTEX: "Click a visible vertex to delete it.",
+            EditMode.REPLACE_POLYGON: "Click points; double-click or Enter to finish.",
+            EditMode.REPLACE_BASELINE: "Click points; double-click or Enter to finish.",
+        }.get(selected_mode)
+        if guidance:
+            self.statusBar().showMessage(guidance, 5000)
+
+    def _move_selected_line(self, direction: int) -> None:
+        item = self.canvas.page_scene.selected_line_item()
+        if item is None:
+            self.statusBar().showMessage("Select a line before changing reading order.", 4000)
+            return
+        self.readingOrderMoveRequested.emit(item.adapter.id, direction)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Implement tap-to-select and hold-to-use mode shortcuts.
+
+        A short press selects a tool when released.  Holding the same key for
+        275 ms temporarily activates it and restores the prior tool on release.
+        Text entry retains the literal keys because the transcription editor is
+        deliberately excluded from this filter.
+        """
+        if event.type() not in {QEvent.Type.KeyPress, QEvent.Type.KeyRelease}:
+            return super().eventFilter(watched, event)
+        if not hasattr(event, "key"):
+            return super().eventFilter(watched, event)
+        key = event.key()
+        if key not in self._mode_key_actions:
+            return super().eventFilter(watched, event)
+        if event.modifiers() != Qt.KeyboardModifier.NoModifier:
+            return super().eventFilter(watched, event)
+        focus = QApplication.focusWidget()
+        if focus is self.canvas.overlay.editor:
+            return super().eventFilter(watched, event)
+        if event.type() == QEvent.Type.KeyPress:
+            if event.isAutoRepeat() or self._pending_mode_key is not None:
+                return True
+            mode = self._mode_key_actions[key]
+            if not self.mode_actions[mode].isEnabled():
+                return True
+            self._pending_mode_key = key
+            self._previous_mode = EditMode(self.canvas.edit_mode)
+            self._temporary_mode = None
+            self._mode_hold_timer.start()
+            return True
+        if key != self._pending_mode_key:
+            return super().eventFilter(watched, event)
+        self._mode_hold_timer.stop()
+        mode = self._mode_key_actions[key]
+        previous = self._previous_mode
+        temporary = self._temporary_mode
+        self._pending_mode_key = None
+        self._previous_mode = None
+        self._temporary_mode = None
+        if temporary is None:
+            self.mode_actions[mode].trigger()
+        elif previous is not None and self.mode_actions[previous].isEnabled():
+            self.mode_actions[previous].trigger()
+        return True
+
+    def _activate_temporary_mode(self) -> None:
+        if self._pending_mode_key is None:
+            return
+        mode = self._mode_key_actions[self._pending_mode_key]
+        if self.mode_actions[mode].isEnabled():
+            self.mode_actions[mode].trigger()
+            self._temporary_mode = mode
 
     def _update_mode_indicator(self) -> None:
         if self._transcription_mode:
@@ -598,7 +713,12 @@ class MainWindow(QMainWindow):
     def _update_status(self, *args) -> None:
         del args
         item = self.canvas.page_scene.selected_line_item()
-        selected = f" · Line {item.adapter.id}" if item is not None else ""
+        order = ""
+        if item is not None:
+            source_order = getattr(item.adapter.source, "source_order", None)
+            if source_order is not None:
+                order = f" · Order {int(source_order) + 1}"
+        selected = f" · Line {item.adapter.id}{order}" if item is not None else ""
         dirty = " · Modified" if not self.undo_stack.isClean() else ""
         self.statusBar().showMessage(
             f"Zoom {self.canvas.zoom_factor * 100:.0f}% · "

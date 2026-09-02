@@ -111,7 +111,10 @@ def _sync_line_text(line_element: etree._Element, namespace: str, text: str) -> 
 
 
 def _refresh_dirty_regions(
-    tree: etree._ElementTree, namespace: str, dirty_region_ids: set[str]
+    tree: etree._ElementTree,
+    document: PageDocument,
+    namespace: str,
+    dirty_region_ids: set[str],
 ) -> None:
     if not dirty_region_ids:
         return
@@ -119,9 +122,30 @@ def _refresh_dirty_regions(
     def q(name: str) -> str:
         return f"{{{namespace}}}{name}"
 
+    domain_regions = {region.id: region for region in document.regions}
     for region_idx, region in enumerate(tree.iter(q("TextRegion"))):
-        if region.get("id") not in dirty_region_ids:
+        region_id = region.get("id")
+        if region_id not in dirty_region_ids:
             continue
+        domain_region = domain_regions.get(region_id)
+        if domain_region is None:
+            raise PageWriteError(f"Cannot resolve source TextRegion {region_id!r}")
+
+        # Reorder only TextLine siblings.  Detaching all of them first keeps
+        # Coords, TextEquiv, comments, and vendor children in their original
+        # slots while making the user's explicit line order durable in PAGE.
+        source_lines = region.findall(q("TextLine"))
+        source_by_id = {element.get("id"): element for element in source_lines}
+        desired_ids = [line.id for line in domain_region.lines if not line.deleted]
+        if len(source_by_id) != len(source_lines) or set(source_by_id) != set(desired_ids):
+            raise PageWriteError(
+                f"TextRegion {region_id!r} has an ambiguous or stale TextLine order"
+            )
+        line_slots = [index for index, child in enumerate(region) if child.tag == q("TextLine")]
+        for element in source_lines:
+            region.remove(element)
+        for slot, line_id in zip(line_slots, desired_ids, strict=True):
+            region.insert(slot, source_by_id[line_id])
         for text_equiv in region.findall(q("TextEquiv")):
             unicode_element = text_equiv.find(q("Unicode"))
             if unicode_element is not None:
@@ -199,7 +223,7 @@ def apply_document(
             _sync_line_text(element, namespace, line.text)
         changed = True
     if dirty_region_ids:
-        _refresh_dirty_regions(candidate, namespace, dirty_region_ids)
+        _refresh_dirty_regions(candidate, document, namespace, dirty_region_ids)
         changed = True
     if changed:
         metadata = candidate.getroot().find(q("Metadata"))

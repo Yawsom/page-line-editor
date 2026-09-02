@@ -68,7 +68,7 @@ def test_proposal_is_read_only_and_carries_reversible_applied_state(tmp_path) ->
     assert any(diff.tag == "replace" for diff in proposal.char_diffs)
 
 
-def test_merge_keeps_member_baseline_point_order() -> None:
+def test_merge_keeps_member_baseline_point_order_without_a_return_stroke() -> None:
     left_baseline = ((0, 15), (20, 13), (40, 15))
     right_baseline = ((60, 16), (80, 12), (100, 16))
     page = PageCorrectionInput(
@@ -84,7 +84,10 @@ def test_merge_keeps_member_baseline_point_order() -> None:
 
     assert proposal.status is CorrectionStatus.MERGE
     assert proposal.line_ids == ("l2", "l1")
-    assert proposal.after[0].baseline == right_baseline + left_baseline
+    # Text is RTL ("hello world"), but both source baselines are encoded
+    # left-to-right.  The exported stroke must not travel right-to-left across
+    # the line and then double back over itself.
+    assert proposal.after[0].baseline == left_baseline + right_baseline
     assert proposal.after[1].deleted
 
 

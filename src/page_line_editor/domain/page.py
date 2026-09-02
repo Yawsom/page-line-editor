@@ -31,6 +31,13 @@ class TextLine:
     correction_status: str = ""
     original_deleted: bool = False
     deleted: bool = False
+    original_source_order: int = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        # ``source_order`` is the editor's explicit reading-order position.  It
+        # starts from the PAGE child order and can later be changed without
+        # conflating that structural edit with geometry or text edits.
+        self.original_source_order = self.source_order
 
     @property
     def stable_id(self) -> str:
@@ -75,6 +82,8 @@ class TextLine:
             fields.add("baseline")
         if self.deleted != self.original_deleted:
             fields.add("deleted")
+        if self.source_order != self.original_source_order:
+            fields.add("order")
         return frozenset(fields)
 
     @property
@@ -86,6 +95,7 @@ class TextLine:
         self.original_polygon = self.polygon
         self.original_baseline = self.baseline
         self.original_deleted = self.deleted
+        self.original_source_order = self.source_order
 
 
 @dataclass(slots=True)
@@ -132,6 +142,39 @@ class PageDocument:
         if len(matches) > 1:
             raise KeyError(f"Duplicate line id: {line_id}")
         return matches[0]
+
+    def reorder_line(self, line_id: str, direction: int) -> bool:
+        """Move one live line within its region's explicit reading order."""
+        line = self.line_by_id(line_id)
+        region = next(region for region in self.regions if region.id == line.region_id)
+        current = region.lines.index(line)
+        target = max(0, min(len(region.lines) - 1, current + direction))
+        if target == current:
+            return False
+        region.lines.pop(current)
+        region.lines.insert(target, line)
+        self._refresh_region_source_orders(region)
+        self.revision += 1
+        return True
+
+    def restore_region_order(self, region_id: str, line_ids: tuple[str, ...]) -> None:
+        """Restore a previously captured regional line order for undo/redo."""
+        region = next(region for region in self.regions if region.id == region_id)
+        by_id = {line.id: line for line in region.lines}
+        if set(line_ids) != set(by_id):
+            raise ValueError("Reading-order snapshot does not match the TextRegion")
+        region.lines[:] = [by_id[line_id] for line_id in line_ids]
+        self._refresh_region_source_orders(region)
+        self.revision += 1
+
+    @staticmethod
+    def _refresh_region_source_orders(region: TextRegion) -> None:
+        # Keep source-order values outside this region untouched, so a local
+        # reorder remains a narrow PAGE mutation.  The positions assigned to
+        # this region stay in its original global range.
+        positions = sorted(line.source_order for line in region.lines)
+        for position, line in zip(positions, region.lines, strict=True):
+            line.source_order = position
 
     @property
     def is_dirty(self) -> bool:

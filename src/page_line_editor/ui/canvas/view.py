@@ -456,7 +456,9 @@ class PageCanvasView(QGraphicsView):
                     self._mode is EditMode.MOVE_LINE and not self._transcription_focus
                 ),
                 vertex_editable=(
-                    self._mode is EditMode.SELECT and not self._transcription_focus
+                    self._mode
+                    in {EditMode.SELECT, EditMode.ADD_VERTEX, EditMode.DELETE_VERTEX}
+                    and not self._transcription_focus
                 ),
             )
 

@@ -101,6 +101,33 @@ def test_geometry_edit_is_one_undo_step(qtbot) -> None:  # type: ignore[no-untyp
     assert len(item.adapter.polygon) == len(before) + 1
 
 
+@pytest.mark.parametrize("mode", (EditMode.ADD_VERTEX, EditMode.DELETE_VERTEX))
+def test_vertex_tools_keep_selected_vertices_visible(qtbot, mode: EditMode) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    item.setSelected(True)
+
+    view.set_edit_mode(mode)
+
+    assert len(item._handles) == len(item.polygon) + len(item.baseline)
+
+
+def test_added_vertex_immediately_has_a_visible_handle(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view, _ = make_view(qtbot)
+    item = view.page_scene.line_items[0]
+    item.setSelected(True)
+    view.set_edit_mode(EditMode.ADD_VERTEX)
+
+    QTest.mouseClick(
+        view.viewport(), Qt.MouseButton.LeftButton, pos=view.mapFromScene(QPointF(100, 20))
+    )
+
+    assert len(item._handles) == len(item.polygon) + len(item.baseline)
+    assert any(
+        handle.kind == "polygon" and handle.index == 1 for handle in item._handles
+    )
+
+
 def test_minimum_vertex_constraints_and_replace_shape(
     qtbot,
 ) -> None:  # type: ignore[no-untyped-def]

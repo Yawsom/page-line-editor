@@ -355,4 +355,18 @@ def connected_baselines(lines: Sequence[CorrectionLine]) -> tuple[Point, ...]:
     each member are never sorted or deduplicated.
     """
 
-    return tuple(point for line in rtl_order(lines) for point in line.baseline)
+    usable = tuple(line for line in lines if line.baseline)
+    if not usable:
+        return ()
+
+    # Text is joined in right-to-left reading order, but PAGE baseline points
+    # describe a geometric stroke.  Joining left-to-right point sequences in
+    # RTL text order creates a long return stroke (the visible "double
+    # underline" reported in #1).  Follow the direction encoded by the source
+    # polylines and preserve every member's internal point order.
+    direction = sum(line.baseline[-1][0] - line.baseline[0][0] for line in usable)
+    if direction >= 0:
+        ordered = sorted(usable, key=lambda line: (line.baseline[0][0], line.source_index))
+    else:
+        ordered = sorted(usable, key=lambda line: (-line.baseline[0][0], line.source_index))
+    return tuple(point for line in ordered for point in line.baseline)

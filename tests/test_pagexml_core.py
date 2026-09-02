@@ -361,6 +361,28 @@ def test_deletion_reindexes_reading_order(tmp_path: Path) -> None:
     )
 
 
+def test_explicit_line_reorder_moves_xml_and_reading_order_indexes(tmp_path: Path) -> None:
+    source = tmp_path / "page.xml"
+    source.write_bytes(page_xml(transkribus=False))
+    document = parse_page(source)
+
+    assert document.reorder_line("l2", -1)
+    candidate, _ = build_candidate(document)
+    tree = etree.fromstring(candidate)
+    ns = {"p": PAGE_2013_NAMESPACE}
+
+    assert tree.xpath(".//p:TextRegion[@id='r1']/p:TextLine/@id", namespaces=ns) == [
+        "l2",
+        "l1",
+    ]
+    assert "readingOrder {index:0;}" in tree.xpath(
+        "string(.//p:TextLine[@id='l2']/@custom)", namespaces=ns
+    )
+    assert "readingOrder {index:1;}" in tree.xpath(
+        "string(.//p:TextLine[@id='l1']/@custom)", namespaces=ns
+    )
+
+
 def test_page_edge_coordinate_is_warning_not_blocking(tmp_path: Path) -> None:
     source = tmp_path / "page.xml"
     xml = page_xml(transkribus=False).replace(

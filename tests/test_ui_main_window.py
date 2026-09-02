@@ -72,6 +72,22 @@ def test_left_tool_palette_switches_canvas_interaction(qtbot) -> None:  # type: 
     assert window.mode_indicator.text() == "Mode: Move Whole Line"
 
 
+def test_tool_shortcuts_tap_to_select_and_hold_temporarily(qtbot) -> None:  # type: ignore[no-untyped-def]
+    window = make_window(qtbot)
+    viewport = window.canvas.viewport()
+    viewport.setFocus()
+    qtbot.waitUntil(viewport.hasFocus)
+
+    QTest.keyClick(viewport, Qt.Key.Key_A)
+    assert window.canvas.edit_mode is EditMode.ADD_VERTEX
+
+    QTest.keyPress(viewport, Qt.Key.Key_M)
+    qtbot.wait(300)
+    assert window.canvas.edit_mode is EditMode.MOVE_LINE
+    QTest.keyRelease(viewport, Qt.Key.Key_M)
+    assert window.canvas.edit_mode is EditMode.ADD_VERTEX
+
+
 @pytest.mark.parametrize("mode", [mode for mode in EditMode if mode is not EditMode.SELECT])
 def test_every_line_tool_switches_cleanly_back_to_select(
     qtbot,

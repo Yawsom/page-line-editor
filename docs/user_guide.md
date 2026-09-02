@@ -49,6 +49,10 @@ Ctrl/Command+T.
 - Up selects the previous TextLine in PAGE document order.
 - Down selects the next TextLine in PAGE document order.
 - Navigation stops at the first and last line.
+- The selected line's one-based **Order** is shown in the status bar. Use
+  **Line → Move Line Earlier/Later** (Ctrl/Command+Alt+Up/Down) to change its
+  order within its TextRegion. This is undoable and Save reorders the PAGE
+  `TextLine` elements and their `readingOrder` indexes.
 - Right-click a line to edit its transcription, select it alone, center it,
   switch to a geometry tool, or copy its PAGE TextLine ID.
 
@@ -59,7 +63,7 @@ Ctrl/Command+T.
 | Pan Canvas | H | Drag the page without changing PAGE geometry. |
 | Select / Edit | V | Select lines and drag individual polygon or baseline vertices. |
 | Move Whole Line | M | Move a complete polygon and baseline together. |
-| Add Vertex | A | Select a line, then click near the polygon or baseline segment that should receive a vertex. |
+| Add Vertex | A | Select a line, then click near the polygon or baseline segment that should receive a vertex. Vertices remain visible while this tool is active. |
 | Delete Vertex | D | Select a line, then click near the vertex to remove. Minimum shape sizes are enforced. |
 | Replace Polygon | P | Click the new polygon points, then double-click or press Enter to finish. Press Escape to cancel. |
 | Replace Baseline | B | Click the new baseline points, then double-click or press Enter to finish. Press Escape to cancel. |
@@ -67,6 +71,11 @@ Ctrl/Command+T.
 Geometry edits are undoable. Invalid edits—such as self-intersecting polygons,
 out-of-image points, or newly invalid baselines—are rejected with a status
 message.
+
+Tap a single-letter tool shortcut to select that tool. Hold it for roughly a
+quarter second to use it temporarily; releasing the key restores the tool that
+was selected before the hold. Tool shortcuts do not intercept text typed into
+the transcription editor.
 
 ## Panning, zooming, and view controls
 
@@ -140,4 +149,6 @@ source XML in separate directories.
   committed to the source repository.
 - Closing, opening another project, or changing pages with unsaved work shows a
   dirty-state warning.
-- Manual structural split and merge tools are not yet implemented.
+- Manual structural split and merge tools are not yet implemented. Automatic
+  merges retain their source baseline point direction so the merged geometry
+  does not loop back and draw a doubled underline.
