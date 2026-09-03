@@ -29,10 +29,12 @@ def normalize_for_match(text: str) -> str:
 
 
 def normalize_for_display(text: str) -> str:
+    """Normalize for display."""
     return WHITESPACE_RE.sub(" ", (text or "").strip())
 
 
 def similarity(before: str, after: str) -> float:
+    """Return normalized text similarity on a zero-to-one scale."""
     left, right = normalize_for_match(before), normalize_for_match(after)
     if not left and not right:
         return 1.0
@@ -42,6 +44,7 @@ def similarity(before: str, after: str) -> float:
 
 
 def arabic_letter_ratio(text: str) -> float:
+    """Return the fraction of characters that are Arabic letters."""
     if not text:
         return 0.0
     letters = len(ARABIC_LETTER_RE.findall(text))
@@ -49,6 +52,7 @@ def arabic_letter_ratio(text: str) -> float:
 
 
 def digit_ratio(text: str) -> float:
+    """Return the fraction of characters that are decimal digits."""
     compact = (text or "").replace(" ", "")
     if not compact:
         return 0.0

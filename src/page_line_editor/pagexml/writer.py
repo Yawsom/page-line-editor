@@ -18,6 +18,7 @@ class PageWriteError(ValueError):
 
 
 def _text_line_elements(tree: etree._ElementTree, namespace: str) -> list[etree._Element]:
+    """Return all TextLine elements in a PAGE tree."""
     return list(tree.iter(f"{{{namespace}}}TextLine"))
 
 
@@ -68,7 +69,9 @@ def refresh_xml_paths(document: PageDocument, tree: etree._ElementTree | None = 
 
 
 def _ensure_baseline(line_element: etree._Element, namespace: str) -> etree._Element:
+    """Return a Baseline element, creating it after Coords when required."""
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     baseline = line_element.find(q("Baseline"))
@@ -82,6 +85,7 @@ def _ensure_baseline(line_element: etree._Element, namespace: str) -> etree._Ele
 
 
 def _set_reading_order(element: etree._Element, index: int) -> None:
+    """Store a PAGE reading-order index in an element custom attribute."""
     replacement = f"readingOrder {{index:{index};}}"
     custom = element.get("custom") or ""
     if READING_ORDER_RE.search(custom):
@@ -95,6 +99,7 @@ def _sync_line_text(line_element: etree._Element, namespace: str, text: str) -> 
     """Write Unicode and drop stale Word/Glyph/PlainText so Transkribus shows the edit."""
 
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     for child in list(line_element):
@@ -116,10 +121,12 @@ def _refresh_dirty_regions(
     namespace: str,
     dirty_region_ids: set[str],
 ) -> None:
+    """Refresh dirty region text and reading order after structural edits."""
     if not dirty_region_ids:
         return
 
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     domain_regions = {region.id: region for region in document.regions}
@@ -161,7 +168,9 @@ def _refresh_dirty_regions(
 
 
 def _ensure_unicode(line_element: etree._Element, namespace: str) -> etree._Element:
+    """Return a Unicode element, creating the required TextEquiv structure."""
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     text_equiv = line_element.find(q("TextEquiv"))
@@ -193,6 +202,7 @@ def apply_document(
     namespace = document.namespace
 
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     dirty_region_ids = {line.region_id for line in document.lines if line.is_dirty}
@@ -241,6 +251,7 @@ def apply_document(
 
 
 def serialize_tree(tree: etree._ElementTree, document: PageDocument) -> bytes:
+    """Serialize a PAGE tree with the source document serialization settings."""
     options: dict[str, object] = {
         "encoding": document.xml_encoding,
         "xml_declaration": True,
@@ -252,5 +263,6 @@ def serialize_tree(tree: etree._ElementTree, document: PageDocument) -> bytes:
 
 
 def build_candidate(document: PageDocument) -> tuple[bytes, etree._ElementTree]:
+    """Build serialized candidate XML and its validated mutable tree."""
     tree = apply_document(document)
     return serialize_tree(tree, document), tree

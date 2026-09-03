@@ -11,12 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def project_version() -> str:
+    """Return the package version declared in pyproject.toml."""
     with (ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
     return str(project["version"])
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the PAGE Line Editor desktop application."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True, help="Git tag being released, e.g. v0.1.0a1")
     args = parser.parse_args(argv)

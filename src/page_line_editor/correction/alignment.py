@@ -54,6 +54,7 @@ class AlignedLines:
 
 
 def is_noise_line(line: CorrectionLine) -> bool:
+    """Return whether noise line."""
     if line.noise is not None:
         return line.noise
     text = line.text.strip()
@@ -71,10 +72,12 @@ def is_noise_line(line: CorrectionLine) -> bool:
 
 
 def _with_noise(line: CorrectionLine) -> CorrectionLine:
+    """Return a line with an inferred noise classification."""
     return line if line.noise is not None else replace(line, noise=is_noise_line(line))
 
 
 def _median_spacing(lines: Sequence[CorrectionLine]) -> float:
+    """Return the median vertical spacing between adjacent lines."""
     ys = [line.baseline_y for line in lines]
     distances = [
         right - left for left, right in zip(ys, ys[1:], strict=False) if right - left > 1
@@ -83,20 +86,24 @@ def _median_spacing(lines: Sequence[CorrectionLine]) -> float:
 
 
 def _complementary_x(left: CorrectionLine, right: CorrectionLine) -> bool:
+    """Return whether two lines occupy complementary horizontal spans."""
     overlap = min(left.bbox.x_max, right.bbox.x_max) - max(left.bbox.x_min, right.bbox.x_min)
     min_width = min(left.bbox.width, right.bbox.width) or 1
     return overlap <= 0 or overlap / min_width < 0.25
 
 
 def rtl_order(lines: Sequence[CorrectionLine]) -> tuple[CorrectionLine, ...]:
+    """Return lines sorted in right-to-left visual order."""
     return tuple(sorted(lines, key=lambda line: -line.bbox.x_max))
 
 
 def join_rtl_text(lines: Sequence[CorrectionLine]) -> str:
+    """Return non-empty line text joined in right-to-left order."""
     return " ".join(line.text.strip() for line in rtl_order(lines) if line.text.strip())
 
 
 def _merge_lines(lines: Sequence[CorrectionLine]) -> CorrectionLine:
+    """Merge lines."""
     ordered = rtl_order(lines)
     box = ordered[0].bbox
     for line in ordered[1:]:
@@ -124,6 +131,7 @@ def apply_geometric_merges(
     ground_truth_texts: Sequence[str],
     cancel_token: CancellationToken,
 ) -> tuple[CorrectionLine, ...]:
+    """Apply geometric merges."""
     if len(lines) < 2:
         return tuple(lines)
     spacing = _median_spacing(lines)
@@ -159,6 +167,7 @@ def apply_geometric_merges(
 
 
 def _pair_cost(before: str, after: str) -> float:
+    """Return the dynamic-programming cost of one alignment pair."""
     ratio = similarity(before, after)
     if ratio < MATCH_FLOOR:
         return 1.0 + (MATCH_FLOOR - ratio)
@@ -166,6 +175,7 @@ def _pair_cost(before: str, after: str) -> float:
 
 
 def _join_improves(left: CorrectionLine, right: CorrectionLine, after: str) -> bool:
+    """Return whether joining two XML lines improves the target match."""
     if is_noise_line(left) or is_noise_line(right):
         return False
     solo = max(similarity(left.text, after), similarity(right.text, after))
@@ -175,11 +185,13 @@ def _join_improves(left: CorrectionLine, right: CorrectionLine, after: str) -> b
 def _gt_join_improves(
     before: str, left: GroundTruthLine, right: GroundTruthLine
 ) -> bool:
+    """Return whether joining ground-truth lines improves the match."""
     solo = max(similarity(before, left.text), similarity(before, right.text))
     return similarity(before, f"{left.text} {right.text}") >= solo + JOIN_IMPROVE
 
 
 def _char_diffs(before: str, after: str) -> tuple[CharDiff, ...]:
+    """Return character-level differences between normalized strings."""
     left = normalize_for_display(before)
     right = normalize_for_display(after)
     return tuple(
@@ -191,6 +203,7 @@ def _char_diffs(before: str, after: str) -> tuple[CharDiff, ...]:
 
 
 def _flags(lines: Sequence[CorrectionLine]) -> tuple[str, ...]:
+    """Return diagnostic flags inferred from the aligned lines."""
     flags: set[str] = set()
     for line in lines:
         if is_noise_line(line):
@@ -207,6 +220,7 @@ def _flags(lines: Sequence[CorrectionLine]) -> tuple[str, ...]:
 def _make_alignment(
     lines: Sequence[CorrectionLine], ground_truth: Sequence[GroundTruthLine]
 ) -> AlignedLines:
+    """Build an alignment record from source and ground-truth lines."""
     before = lines[0].text if len(lines) == 1 else join_rtl_text(lines) if lines else ""
     after = " ".join(line.text for line in ground_truth) if ground_truth else None
     ratio = similarity(before, after) if lines and ground_truth and after is not None else None
@@ -325,11 +339,13 @@ def align_lines(
 
 
 def convex_hull(points: Sequence[Point]) -> tuple[Point, ...]:
+    """Return the convex hull enclosing the supplied points."""
     unique = sorted(set(points))
     if len(unique) <= 2:
         return tuple(unique)
 
     def cross(origin: Point, left: Point, right: Point) -> int:
+        """Return the orientation cross product used by the hull algorithm."""
         return (left[0] - origin[0]) * (right[1] - origin[1]) - (
             left[1] - origin[1]
         ) * (right[0] - origin[0])

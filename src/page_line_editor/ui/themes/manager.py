@@ -18,6 +18,7 @@ _SYSTEM_PALETTE: QPalette | None = None
 
 
 def _light_palette() -> QPalette:
+    """Build the application light color palette."""
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor("#f5f7fa"))
     palette.setColor(QPalette.ColorRole.WindowText, QColor("#172033"))
@@ -32,6 +33,7 @@ def _light_palette() -> QPalette:
 
 
 def _dark_palette() -> QPalette:
+    """Build the application dark color palette."""
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor("#161b24"))
     palette.setColor(QPalette.ColorRole.WindowText, QColor("#e9edf5"))
@@ -46,6 +48,7 @@ def _dark_palette() -> QPalette:
 
 
 def apply_theme(app: QApplication, theme: Theme | str) -> Theme:
+    """Apply theme."""
     global _SYSTEM_PALETTE
     selected = Theme(theme)
     if _SYSTEM_PALETTE is None:
@@ -69,6 +72,7 @@ def apply_theme(app: QApplication, theme: Theme | str) -> Theme:
 
 
 def overlay_colors(theme: Theme | str) -> dict[str, QColor]:
+    """Return theme-specific canvas overlay colors."""
     dark = Theme(theme) is Theme.DARK
     return {
         "polygon": QColor("#44b5ff" if dark else "#0067c5"),

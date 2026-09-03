@@ -37,42 +37,52 @@ class TextLine:
         # ``source_order`` is the editor's explicit reading-order position.  It
         # starts from the PAGE child order and can later be changed without
         # conflating that structural edit with geometry or text edits.
+        """Validate and normalize dataclass state after initialization."""
         self.original_source_order = self.source_order
 
     @property
     def stable_id(self) -> str:
+        """Return stable id."""
         return self.id
 
     @property
     def source_index(self) -> int:
+        """Return source index."""
         return self.source_order
 
     @property
     def current_text(self) -> str:
+        """Return current text."""
         return self.text
 
     @current_text.setter
     def current_text(self, value: str) -> None:
+        """Return current text."""
         self.text = value
 
     @property
     def current_polygon(self) -> Polygon:
+        """Return current polygon."""
         return self.polygon
 
     @current_polygon.setter
     def current_polygon(self, value: Polygon) -> None:
+        """Return current polygon."""
         self.polygon = value if isinstance(value, Polygon) else Polygon(value)
 
     @property
     def current_baseline(self) -> Polyline | None:
+        """Return current baseline."""
         return self.baseline
 
     @current_baseline.setter
     def current_baseline(self, value: Polyline | None) -> None:
+        """Return current baseline."""
         self.baseline = value if value is None or isinstance(value, Polyline) else Polyline(value)
 
     @property
     def dirty_fields(self) -> frozenset[str]:
+        """Return dirty fields."""
         fields: set[str] = set()
         if self.text != self.original_text:
             fields.add("text")
@@ -88,9 +98,11 @@ class TextLine:
 
     @property
     def is_dirty(self) -> bool:
+        """Return whether dirty."""
         return bool(self.dirty_fields)
 
     def mark_clean(self) -> None:
+        """Mark the current state as the saved baseline."""
         self.original_text = self.text
         self.original_polygon = self.polygon
         self.original_baseline = self.baseline
@@ -107,6 +119,7 @@ class TextRegion:
     xml_path: str = ""
 
     def __iter__(self) -> Iterator[TextLine]:
+        """Iterate over the contained values."""
         return iter(self.lines)
 
 
@@ -128,6 +141,7 @@ class PageDocument:
 
     @property
     def lines(self) -> list[TextLine]:
+        """Return lines."""
         return [line for region in self.regions for line in region.lines]
 
     @property
@@ -136,6 +150,7 @@ class PageDocument:
         return [line for line in self.lines if not line.deleted]
 
     def line_by_id(self, line_id: str) -> TextLine:
+        """Return one uniquely identified line or raise KeyError."""
         matches = [line for line in self.lines if line.id == line_id]
         if not matches:
             raise KeyError(line_id)
@@ -172,18 +187,21 @@ class PageDocument:
         # Keep source-order values outside this region untouched, so a local
         # reorder remains a narrow PAGE mutation.  The positions assigned to
         # this region stay in its original global range.
+        """Renumber one region while preserving its global source-order range."""
         positions = sorted(line.source_order for line in region.lines)
         for position, line in zip(positions, region.lines, strict=True):
             line.source_order = position
 
     @property
     def is_dirty(self) -> bool:
+        """Return whether dirty."""
         return any(line.is_dirty for line in self.lines)
 
     def mark_clean(self, *, xml_tree: Any | None = None) -> None:
         # Once an atomic save commits a deletion, the retained raw tree no
         # longer contains that element. Drop its tombstone so later saves never
         # try to resolve a path which cannot exist in the new tree.
+        """Mark the current state as the saved baseline."""
         for region in self.regions:
             region.lines[:] = [line for line in region.lines if not line.deleted]
         for line in self.lines:

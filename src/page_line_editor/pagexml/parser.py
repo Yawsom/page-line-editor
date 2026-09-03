@@ -18,6 +18,7 @@ class PageXmlError(ValueError):
 
 
 def _secure_parser() -> etree.XMLParser:
+    """Build an XML parser that disables external entity resolution."""
     return etree.XMLParser(
         resolve_entities=False,
         no_network=True,
@@ -30,6 +31,7 @@ def _secure_parser() -> etree.XMLParser:
 
 
 def _required_int(element: etree._Element, name: str) -> int:
+    """Return a required integer XML attribute or raise a PAGE error."""
     value = element.get(name)
     try:
         number = int(value) if value is not None else 0
@@ -55,6 +57,7 @@ def parse_page(path: str | Path) -> PageDocument:
         raise PageXmlError(f"Unsupported PAGE namespace: {namespace or '(none)'}")
 
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     page = root.find(q("Page"))

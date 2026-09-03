@@ -39,6 +39,7 @@ class GroundTruthBook:
     warnings: tuple[str, ...] = ()
 
     def lines_for_key(self, key: str) -> tuple[GroundTruthLine, ...]:
+        """Return ground-truth lines associated with a folio key."""
         direct = self.pages.get(key)
         if direct is not None:
             return direct
@@ -49,6 +50,7 @@ class GroundTruthBook:
         raise GroundTruthPageNotFound(f"No ground-truth page named {key!r}")
 
     def lines_for_document(self, document: PageDocument) -> tuple[GroundTruthLine, ...]:
+        """Return ground-truth lines matched to a PAGE document."""
         candidates: list[str] = []
         for value in (
             Path(document.image_filename).stem if document.image_filename else "",
@@ -85,6 +87,7 @@ def iter_docx_blocks(document: DocumentObject) -> Iterator[Paragraph | Table]:
 
 
 def _cell_paragraphs(table: Table) -> Iterator[Paragraph]:
+    """Yield non-empty paragraphs from a Word table cell."""
     seen: set[int] = set()
     for row in table.rows:
         for cell in row.cells:

@@ -23,6 +23,7 @@ class TextDiff:
 
     @property
     def addition_ranges(self) -> tuple[tuple[int, int], ...]:
+        """Return character ranges added by a text difference."""
         return tuple(
             (segment.start, segment.end)
             for segment in self.after
@@ -31,6 +32,7 @@ class TextDiff:
 
 
 def compare_text(before: str, after: str, *, normalize_nfc: bool = True) -> TextDiff:
+    """Compare source and corrected text into display spans."""
     if normalize_nfc:
         before = unicodedata.normalize("NFC", before)
         after = unicodedata.normalize("NFC", after)
@@ -55,6 +57,7 @@ def rich_diff_text(
     side: str,
     dark: bool,
 ) -> str:
+    """Render text-difference spans for a rich-text widget."""
     addition = "#2ea04366" if dark else "#abf2bc"
     deletion = "#f8514966" if dark else "#ff818266"
     parts: list[str] = ["<span style='white-space:pre'>"]

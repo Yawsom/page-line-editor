@@ -14,6 +14,7 @@ from .vertex_handle import VertexHandle
 
 
 def _path(points: Sequence[PointTuple], close: bool = False) -> QPainterPath:
+    """Build a painter path from ordered line points."""
     result = QPainterPath()
     if not points:
         return result
@@ -32,6 +33,7 @@ class LineGraphicsItem(QGraphicsObject):
     activated = Signal(object)
 
     def __init__(self, adapter: LineAdapter, theme: Theme | str = Theme.SYSTEM) -> None:
+        """Initialize the LineGraphicsItem instance."""
         super().__init__()
         self.adapter = adapter
         self._polygon = adapter.polygon
@@ -55,16 +57,20 @@ class LineGraphicsItem(QGraphicsObject):
 
     @property
     def polygon(self) -> tuple[PointTuple, ...]:
+        """Return polygon."""
         return self._polygon
 
     @property
     def baseline(self) -> tuple[PointTuple, ...]:
+        """Return baseline."""
         return self._baseline
 
     def geometry(self) -> Geometry:
+        """Return geometry."""
         return self._polygon, self._baseline
 
     def sync_from_adapter(self) -> None:
+        """Synchronize from adapter."""
         self.set_geometry(self.adapter.polygon, self.adapter.baseline)
 
     def set_geometry(
@@ -72,6 +78,7 @@ class LineGraphicsItem(QGraphicsObject):
         polygon: Sequence[PointTuple],
         baseline: Sequence[PointTuple],
     ) -> None:
+        """Replace displayed geometry and synchronize visible vertex handles."""
         self.prepareGeometryChange()
         self._polygon = tuple((float(x), float(y)) for x, y in polygon)
         self._baseline = tuple((float(x), float(y)) for x, y in baseline)
@@ -79,18 +86,21 @@ class LineGraphicsItem(QGraphicsObject):
         self.update()
 
     def set_theme(self, theme: Theme | str) -> None:
+        """Set theme."""
         self.colors = overlay_colors(theme)
         for handle in self._handles:
             handle.update()
         self.update()
 
     def set_view_scale(self, scale: float) -> None:
+        """Set view scale."""
         width = 10.0 / max(scale, 0.001)
         if abs(width - self._hit_width) > 0.01:
             self.prepareGeometryChange()
             self._hit_width = width
 
     def set_overlay_visibility(self, polygon: bool, baseline: bool) -> None:
+        """Set overlay visibility."""
         self.show_polygon = polygon
         self.show_baseline = baseline
         # Keep the logical line hit area active in transcription mode even
@@ -104,6 +114,7 @@ class LineGraphicsItem(QGraphicsObject):
         whole_line_movable: bool,
         vertex_editable: bool,
     ) -> None:
+        """Set interaction mode."""
         self.cancel_active_drag()
         self._whole_line_movable = whole_line_movable
         self._vertex_editable = vertex_editable
@@ -128,6 +139,7 @@ class LineGraphicsItem(QGraphicsObject):
         )
 
     def boundingRect(self) -> QRectF:
+        """Return the item bounding rectangle in local coordinates."""
         points = self._polygon + self._baseline
         if not points:
             return QRectF()
@@ -136,6 +148,7 @@ class LineGraphicsItem(QGraphicsObject):
         return rect.adjusted(-margin, -margin, margin, margin)
 
     def shape(self) -> QPainterPath:
+        """Return the selectable geometry path for the line."""
         result = QPainterPath()
         if self._polygon:
             polygon_path = _path(self._polygon, close=True)
@@ -158,6 +171,7 @@ class LineGraphicsItem(QGraphicsObject):
         option: QStyleOptionGraphicsItem,
         widget: QWidget | None = None,
     ) -> None:
+        """Paint the item using the active theme and selection state."""
         del option, widget
         selected = self.isSelected()
         state = self.adapter.proposal_state
@@ -186,6 +200,7 @@ class LineGraphicsItem(QGraphicsObject):
             painter.drawPath(_path(self._baseline))
 
     def itemChange(self, change, value):
+        """Synchronize selection-dependent handles after a Qt item state change."""
         result = super().itemChange(change, value)
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self._rebuild_handles(bool(value))
@@ -194,6 +209,7 @@ class LineGraphicsItem(QGraphicsObject):
         return result
 
     def _rebuild_handles(self, visible: bool) -> None:
+        """Recreate visible vertex handles for the current geometry."""
         for handle in self._handles:
             handle.setVisible(False)
             handle.deleteLater()
@@ -207,6 +223,7 @@ class LineGraphicsItem(QGraphicsObject):
                 self._handles.append(handle)
 
     def _sync_handles(self) -> None:
+        """Synchronize handles."""
         if not self.isSelected():
             return
         expected = [
@@ -225,10 +242,12 @@ class LineGraphicsItem(QGraphicsObject):
             handle.setPos(*point)
 
     def begin_vertex_drag(self, kind: str, index: int) -> None:
+        """Begin vertex drag."""
         del kind, index
         self._drag_before = self.geometry()
 
     def preview_vertex(self, kind: str, index: int, scene_position: QPointF) -> None:
+        """Preview a vertex move without committing an undo command."""
         polygon = list(self._polygon)
         baseline = list(self._baseline)
         points = polygon if kind == "polygon" else baseline
@@ -237,12 +256,14 @@ class LineGraphicsItem(QGraphicsObject):
             self.set_geometry(polygon, baseline)
 
     def finish_vertex_drag(self, label: str) -> None:
+        """Finish vertex drag."""
         before = self._drag_before
         self._drag_before = None
         if before is not None and before != self.geometry():
             self.geometryEditRequested.emit(before, self.geometry(), label)
 
     def mousePressEvent(self, event) -> None:
+        """Handle the Qt mouse press event."""
         if event.button() == Qt.MouseButton.LeftButton:
             extend = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if extend and self.isSelected():
@@ -262,6 +283,7 @@ class LineGraphicsItem(QGraphicsObject):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        """Handle the Qt mouse move event."""
         if self._drag_before is not None and event.buttons() & Qt.MouseButton.LeftButton:
             delta = event.scenePos() - self._drag_origin
             polygon, baseline = self._drag_before
@@ -277,6 +299,7 @@ class LineGraphicsItem(QGraphicsObject):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        """Handle the Qt mouse release event."""
         if self._drag_before is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
             self.finish_vertex_drag("Move line")
@@ -285,6 +308,7 @@ class LineGraphicsItem(QGraphicsObject):
         super().mouseReleaseEvent(event)
 
     def insert_vertex(self, kind: str, index: int, point: PointTuple) -> None:
+        """Insert one vertex and request an undoable geometry edit."""
         before = self.geometry()
         polygon, baseline = map(list, before)
         target = polygon if kind == "polygon" else baseline
@@ -293,6 +317,7 @@ class LineGraphicsItem(QGraphicsObject):
         self.geometryEditRequested.emit(before, after, "Add vertex")
 
     def delete_vertex(self, kind: str, index: int) -> bool:
+        """Delete vertex."""
         before = self.geometry()
         polygon, baseline = map(list, before)
         target = polygon if kind == "polygon" else baseline
@@ -312,6 +337,7 @@ class LineGraphicsItem(QGraphicsObject):
         return True
 
     def replace_shape(self, kind: str, points: Sequence[PointTuple]) -> bool:
+        """Replace one geometry shape when it has the required number of points."""
         minimum = 3 if kind == "polygon" else 2
         if len(points) < minimum:
             return False

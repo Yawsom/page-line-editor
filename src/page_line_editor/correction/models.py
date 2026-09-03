@@ -37,9 +37,11 @@ class BoundingBox:
 
     @property
     def width(self) -> int:
+        """Return the bounding-box width."""
         return self.x_max - self.x_min
 
     def union(self, other: BoundingBox) -> BoundingBox:
+        """Return the bounding box covering both values."""
         return BoundingBox(
             min(self.x_min, other.x_min),
             min(self.y_min, other.y_min),
@@ -49,6 +51,7 @@ class BoundingBox:
 
     @classmethod
     def from_points(cls, points: Sequence[Point]) -> BoundingBox:
+        """Create a BoundingBox from points."""
         if not points:
             return cls(0, 0, 0, 0)
         xs = [point[0] for point in points]
@@ -71,10 +74,12 @@ class CorrectionLine:
 
     @property
     def bbox(self) -> BoundingBox:
+        """Return bbox."""
         return BoundingBox.from_points(self.polygon)
 
     @property
     def baseline_y(self) -> float:
+        """Return baseline y."""
         if self.baseline:
             return sum(point[1] for point in self.baseline) / len(self.baseline)
         return (self.bbox.y_min + self.bbox.y_max) / 2
@@ -138,10 +143,12 @@ class LineCorrectionProposal:
 
     @property
     def actionable(self) -> bool:
+        """Return actionable."""
         return self.before != self.after
 
     @property
     def primary_line_id(self) -> str | None:
+        """Return the proposal line identifier that remains after a merge."""
         return self.line_ids[0] if self.line_ids else None
 
 
@@ -156,6 +163,7 @@ class PageCorrectionProposal:
 
     @property
     def records(self) -> Mapping[str, LineCorrectionProposal]:
+        """Return records."""
         return {proposal.record_key: proposal for proposal in self.proposals}
 
 
@@ -167,6 +175,7 @@ class FolderCorrectionProposal:
 
     @property
     def records(self) -> Mapping[str, LineCorrectionProposal]:
+        """Return records."""
         return {
             proposal.record_key: proposal
             for page in self.pages
@@ -188,6 +197,7 @@ def record_key(xml_filename: str, line_id: str) -> str:
 
 
 def _attr(value: Any, *names: str, default: Any = None) -> Any:
+    """Return attr."""
     if isinstance(value, Mapping):
         for name in names:
             if name in value:
@@ -200,6 +210,7 @@ def _attr(value: Any, *names: str, default: Any = None) -> Any:
 
 
 def _points(value: Any) -> tuple[Point, ...]:
+    """Return points."""
     if value is None:
         return ()
     points: list[Point] = []
@@ -239,6 +250,7 @@ def coerce_line(value: Any, source_index: int = 0) -> CorrectionLine:
 
 
 def coerce_page(value: Any) -> PageCorrectionInput:
+    """Coerce page."""
     if isinstance(value, PageCorrectionInput):
         return value
     filename = _attr(value, "xml_filename", "filename")
@@ -258,6 +270,7 @@ def coerce_page(value: Any) -> PageCorrectionInput:
 
 
 def coerce_ground_truth(values: Iterable[Any]) -> tuple[GroundTruthLine, ...]:
+    """Coerce ground truth."""
     result: list[GroundTruthLine] = []
     for index, value in enumerate(values):
         if isinstance(value, GroundTruthLine):

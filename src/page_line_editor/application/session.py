@@ -26,12 +26,14 @@ class EditorSession:
 
     @property
     def current_pair(self) -> PagePair | None:
+        """Return current pair."""
         if self.project is None or self.current_index < 0:
             return None
         return self.project.pairs[self.current_index]
 
     @property
     def is_dirty(self) -> bool:
+        """Return whether dirty."""
         return self.document is not None and self.document.is_dirty
 
     def open_project(
@@ -40,6 +42,7 @@ class EditorSession:
         xml_directory: str | Path,
         history_directory: str | Path | None = None,
     ) -> ProjectScanResult:
+        """Open project."""
         if self.is_dirty:
             raise RuntimeError(
                 "Unsaved document changes must be handled before opening another project"
@@ -58,6 +61,7 @@ class EditorSession:
         return self.project
 
     def open_page(self, index: int) -> PageDocument:
+        """Open page."""
         if self.project is None:
             raise RuntimeError("No project is open")
         if self.is_dirty:
@@ -71,14 +75,17 @@ class EditorSession:
         return document
 
     def normalize_text(self, text: str) -> str:
+        """Normalize text."""
         return unicodedata.normalize("NFC", text) if self.normalize_nfc else text
 
     def edit_text(self, line_id: str, text: str) -> None:
+        """Edit text."""
         if self.history is None:
             raise RuntimeError("No page is open")
         self.history.edit_text(line_id, self.normalize_text(text))
 
     def save(self) -> SaveResult:
+        """Save the active document through the safe persistence service."""
         if self.document is None or self.history_directory is None:
             raise RuntimeError("No page is open")
         result = SaveService(self.history_directory).save(self.document)

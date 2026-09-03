@@ -1,113 +1,123 @@
-# AGENTS.md
+# AGENTS.md — PAGE Line Editor
 
-## Scope
+## Scope and operating model
 
-These instructions apply to the entire repository. Add a nested `AGENTS.md` only
-when a subtree needs genuinely different commands or constraints.
+These instructions apply to the whole repository. More-specific nested
+`AGENTS.md` files may add rules for a subtree; do not create one unless that
+subtree has genuinely different commands or constraints.
 
-## Project Summary
+PAGE Line Editor is an offline Python 3.11+ / PySide6 desktop editor for Arabic
+manuscript transcription and PAGE 2013 XML geometry. There is no database and
+the runtime must not make network requests. `align_report.py` is the retained
+legacy CLI; new application behavior belongs in `src/page_line_editor/` and
+must preserve shared CLI compatibility.
 
-PAGE Line Editor is an offline Python 3.11+ / PySide6 desktop application for
-Arabic manuscript transcription and PAGE 2013 XML geometry editing. `lxml`
-handles PAGE parsing and validation; `python-docx` supplies folio-delimited
-ground truth. The runtime must remain offline and has no database.
+Before a non-trivial change, read the relevant source, its nearest tests, and:
 
-`align_report.py` is the legacy CLI. New application behavior normally belongs
-under `src/page_line_editor/`; preserve CLI compatibility when touching shared
-alignment behavior.
+- [`README.md`](README.md) for setup, supported file types, and release scope.
+- [`docs/user_guide.md`](docs/user_guide.md) for user-visible behavior.
+- [`RELEASING.md`](RELEASING.md) before changing packaging, tags, or releases.
 
-## Setup and Run
+## Start and verify
+
+Create an isolated environment once, then use its interpreter explicitly. This
+also works when `python` is not available globally.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install ".[dev]"
-python -m page_line_editor
+.venv/bin/python -m pip install ".[dev]"
+.venv/bin/python -m page_line_editor
 ```
 
-If editable imports fail on macOS, run directly from the checkout:
+For an editable-import problem on macOS, run from the checkout:
 
 ```bash
-PYTHONPATH=src python -m page_line_editor
+PYTHONPATH=src .venv/bin/python -m page_line_editor
 ```
 
-## Required Checks
-
-Run focused tests while iterating. Before handing off a code change, run:
+Run focused tests while iterating. Before handing off code, all commands below
+must pass; do not weaken safety, XML, privacy, or UI checks to get green.
 
 ```bash
-python scripts/check_no_private_data.py
-ruff check .
-mypy src/page_line_editor
-pytest
+.venv/bin/python scripts/check_no_private_data.py
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy src/page_line_editor
+QT_QPA_PLATFORM=minimal .venv/bin/python -m pytest
 ```
 
-For UI tests, use the configured `pytest-qt` setup with Qt's `minimal` platform
-backend. Linux CI installs `libegl1` before importing PySide6. Do not weaken a
-failing safety, XML, or privacy check merely to make the suite pass.
+CI runs the same checks on Python 3.11 and 3.13 across Linux, macOS, and
+Windows. Linux installs `libegl1`; use Qt's `minimal` backend for widget tests.
+If local Qt plugin loading fails, keep the failure visible and consult the
+macOS setup note in the README rather than changing application code or CI.
 
-## Architecture Boundaries
+## Repository map
 
-- `domain/`: Qt-free PAGE documents and geometry value objects.
-- `pagexml/`: secure parsing, narrow XML mutation, bundled XSD, validation.
-- `correction/`: pure normalization, alignment, and reversible proposals.
-- `application/`: sessions, pairing, audit, undo history, and safe persistence.
-- `ui/`: PySide6 views, controller, commands, canvas, adapters, and themes.
+| Location | Responsibility |
+| --- | --- |
+| `domain/` | Qt-free PAGE documents and geometry value objects. |
+| `pagexml/` | Secure parsing, narrow writes, bundled XSD, validation. |
+| `correction/` | Pure normalization, alignment, and reversible proposals. |
+| `application/` | Sessions, pairing, audit history, save service, workflows. |
+| `ui/` | PySide6 controller, views, canvas, commands, panels, themes. |
+| `tests/` | Unit and pytest-qt regression coverage. |
+| `scripts/` | Privacy and release metadata gates. |
+| `.github/workflows/` | CI matrix and tag-driven GitHub Release packaging. |
 
-Keep `domain`, `pagexml`, and `correction` independent of PySide6. Route UI
-actions through `EditorController` and application services rather than writing
-files or running correction logic directly from widgets.
+Keep `domain`, `pagexml`, and `correction` independent of PySide6. Widgets do
+not write files or run correction logic directly: route user actions through
+`EditorController` and application services.
 
-## PAGE XML and Data Safety
+## Non-negotiable data and XML rules
 
-- Preserve the raw XML tree and mutate only dirty line fields.
-- Preserve namespaces, document order, metadata, and unknown vendor extensions.
-- Validate candidate XML before saving; create a backup before atomic replace.
-- Auto-correction must write its audit copy before mutating the in-memory model.
-- Keep uncertain `EXTRA` deletions pending until explicit reviewer acceptance.
-- Keep corrections reversible until explicit Save; never silently discard boxes.
-- Generate test XML, images, and DOCX fixtures only in temporary directories.
-- Keep local manuscripts, ground truth, reports, corrected XML, and audit
-  history under the ignored `local_data/` workspace.
-- Never commit manuscript XML, images, DOCX files, reports, backups, correction
-  history, manifests, or other generated project data.
-- Run `python scripts/check_no_private_data.py` before staging or committing.
+- Preserve the raw XML tree; mutate only dirty fields through `pagexml/writer.py`.
+- Preserve namespaces, sibling order, metadata, Word/Glyph content, and unknown
+  vendor extensions. Never rebuild the document from the domain model.
+- Save only through `SaveService`: validate candidate XML, make an exact backup,
+  then atomically replace the source in the same directory.
+- Write the auto-correction audit copy before mutating the live document.
+- Keep uncertain `EXTRA` deletions pending and every correction reversible until
+  explicit Save; never silently discard geometry or boxes.
+- Generate fixtures only in test temporary directories.
+- Keep real manuscripts, images, PAGE XML, DOCX ground truth, reports, backups,
+  manifests, and audit history in ignored `local_data/`; never stage them.
 
-## Code Conventions
+## Implementation conventions
 
-- Use `from __future__ import annotations`, type hints, and `pathlib.Path`.
+- Use `from __future__ import annotations`, complete type hints, and `pathlib.Path`.
+- Use PEP 257 triple-double-quoted docstrings: summarize behavior imperatively;
+  document meaningful side effects, failures, and restrictions without repeating types.
 - Use `snake_case` for modules/functions and `PascalCase` for classes.
-- Prefer `@dataclass(slots=True)`; freeze value objects that should be immutable.
+- Prefer `@dataclass(slots=True)`; freeze value objects where mutation is unsafe.
 - Raise focused domain/application exceptions with actionable messages.
-- Keep proposal generation pure; filesystem mutation belongs in services.
-- Use NFC normalization only where the existing workflow explicitly requests it.
-- Tests live in `tests/test_*.py` and use `test_*` names.
+- Keep proposal generation pure; filesystem effects belong in application services.
+- Apply NFC only where the selected workflow already requests it.
+- Add or update tests in `tests/test_*.py` using `test_*` names.
 
-## Change Guide
+## Change routing and definition of done
 
-- Canvas/tool behavior: `ui/canvas/`, `ui/main_window.py`, `ui/controller.py`.
-- Undo/review commands: `ui/commands/`, `application/history_service.py`.
-- XML parsing/writing: `pagexml/parser.py`, `writer.py`, and validator tests.
-- Alignment behavior: `correction/`, then `application/auto_workflow.py`.
-- Project pairing: `application/project_scanner.py`.
-- User-visible workflows or shortcuts: update `docs/user_guide.md` and tests.
+| If changing… | Start with… | Also update… |
+| --- | --- | --- |
+| Canvas tools, hit testing, shortcuts | `ui/canvas/`, `ui/main_window.py` | pytest-qt tests and user guide. |
+| Undo, review, correction decisions | `ui/commands/`, `application/` | Reversal/acceptance tests. |
+| PAGE parsing, geometry, or writes | `pagexml/`, `domain/` | Validator and preservation tests. |
+| Alignment or auto-merge behavior | `correction/` | Pure proposal and workflow tests. |
+| Project pairing or input files | `application/project_scanner.py` | Scanner tests and README if formats change. |
+| Package/release workflow | `pyproject.toml`, workflows | `scripts/check_release.py`, README, and release guide. |
 
-## Code Review Rules
+A code change is done only when its focused regression coverage, applicable
+user documentation, and the full verification gate are current and passing.
 
-- Flag any path that can overwrite live PAGE XML without validation, an exact
-  backup, and same-directory atomic replacement. Safe path: use `SaveService`.
-- Flag XML rewrites that rebuild the whole document or drop untouched metadata,
-  namespaces, order, Word content, or vendor extensions. Safe path: mutate a
-  cloned raw tree through `pagexml/writer.py`.
-- Flag automatic correction that mutates a document before its audit copy exists
-  or deletes uncertain extras without a reviewer decision.
-- Flag PySide6 imports in `domain/`, `pagexml/`, or `correction/`.
-- Flag tests or commits containing real manuscript data or generated artefacts.
-- Flag UI behavior changes that omit corresponding pytest-qt coverage and user
-  guide updates when shortcuts or workflows change.
+## Git and release conventions
 
-## Git Conventions
+- Use focused `codex/<topic>` branches and Conventional Commit subjects
+  (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`).
+- Inspect `git status` before staging; never include unrelated, ignored, or
+  generated changes.
+- Run the privacy gate immediately before committing.
+- Do not create tags, publish releases, or change GitHub settings unless the
+  user explicitly requests it. A release tag must match `pyproject.toml` and
+  pass `scripts/check_release.py`; artifacts are built by the release workflow.
 
-- Use focused `codex/<topic>` branches.
-- Follow the recent Conventional Commit style (`feat:`, `fix:`, `test:`, `docs:`).
-- Do not stage unrelated existing changes or ignored/generated data.
+Keep this file concise and durable. Put detailed product behavior in the user
+guide and release procedure in `RELEASING.md`; update this file only when a
+repository-wide command, invariant, or routing rule changes.

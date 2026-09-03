@@ -19,13 +19,16 @@ class Point:
     def __post_init__(self) -> None:
         # UI coordinates arrive as floats. PAGE persists pixel coordinates, so
         # quantize once at the Qt-free model boundary.
+        """Validate and normalize dataclass state after initialization."""
         object.__setattr__(self, "x", int(round(self.x)))
         object.__setattr__(self, "y", int(round(self.y)))
 
     def translated(self, dx: int, dy: int) -> Point:
+        """Return a copy translated by the requested offset."""
         return Point(self.x + dx, self.y + dy)
 
     def distance_to(self, other: Point) -> float:
+        """Return the Euclidean distance to another point."""
         return hypot(self.x - other.x, self.y - other.y)
 
 
@@ -49,19 +52,23 @@ def parse_points(value: str, *, minimum: int = 1) -> tuple[Point, ...]:
 
 
 def format_points(points: Iterable[Point]) -> str:
+    """Format points."""
     return " ".join(f"{point.x},{point.y}" for point in points)
 
 
 def _orientation(a: Point, b: Point, c: Point) -> int:
+    """Return the orientation of three ordered points."""
     value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
     return (value > 0) - (value < 0)
 
 
 def _on_segment(a: Point, b: Point, c: Point) -> bool:
+    """Return whether a point lies on the supplied segment."""
     return min(a.x, c.x) <= b.x <= max(a.x, c.x) and min(a.y, c.y) <= b.y <= max(a.y, c.y)
 
 
 def segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool:
+    """Return whether two closed line segments intersect."""
     orientations = (
         _orientation(a, b, c),
         _orientation(a, b, d),
@@ -86,6 +93,7 @@ class Polyline:
     points: tuple[Point, ...]
 
     def __init__(self, points: Sequence[Point] | Iterable[Point]) -> None:
+        """Initialize the Polyline instance."""
         ordered = tuple(points)
         if len(ordered) < 2:
             raise GeometryError("A baseline requires at least two points")
@@ -93,15 +101,19 @@ class Polyline:
 
     @classmethod
     def from_page(cls, value: str) -> Polyline:
+        """Create a Polyline from page."""
         return cls(parse_points(value, minimum=2))
 
     def to_page(self) -> str:
+        """Convert this value to page."""
         return format_points(self.points)
 
     def translated(self, dx: int, dy: int) -> Polyline:
+        """Return a copy translated by the requested offset."""
         return Polyline(point.translated(dx, dy) for point in self.points)
 
     def __iter__(self) -> Iterator[Point]:
+        """Iterate over the contained values."""
         return iter(self.points)
 
 
@@ -110,6 +122,7 @@ class Polygon:
     points: tuple[Point, ...]
 
     def __init__(self, points: Sequence[Point] | Iterable[Point]) -> None:
+        """Initialize the Polygon instance."""
         ordered = tuple(points)
         # PAGE source sometimes explicitly repeats the first vertex. Preserve it,
         # but count distinct closure vertices for validity.
@@ -120,21 +133,26 @@ class Polygon:
 
     @classmethod
     def from_page(cls, value: str) -> Polygon:
+        """Create a Polygon from page."""
         return cls(parse_points(value, minimum=3))
 
     def to_page(self) -> str:
+        """Convert this value to page."""
         return format_points(self.points)
 
     @property
     def vertices(self) -> tuple[Point, ...]:
+        """Return vertices."""
         if self.points[0] == self.points[-1]:
             return self.points[:-1]
         return self.points
 
     def translated(self, dx: int, dy: int) -> Polygon:
+        """Return a copy translated by the requested offset."""
         return Polygon(point.translated(dx, dy) for point in self.points)
 
     def contains(self, point: Point, *, include_boundary: bool = True) -> bool:
+        """Return whether the point lies inside the polygon."""
         vertices = self.vertices
         inside = False
         previous = vertices[-1]
@@ -153,6 +171,7 @@ class Polygon:
         return inside
 
     def is_self_intersecting(self) -> bool:
+        """Return whether self intersecting."""
         vertices = self.vertices
         count = len(vertices)
         for i in range(count):
@@ -165,4 +184,5 @@ class Polygon:
         return False
 
     def __iter__(self) -> Iterator[Point]:
+        """Iterate over the contained values."""
         return iter(self.points)

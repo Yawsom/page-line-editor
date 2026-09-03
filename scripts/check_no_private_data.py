@@ -32,6 +32,7 @@ ALLOWED_ROOTS = {"docs"}
 
 
 def tracked_files() -> list[str]:
+    """Return repository-tracked file paths."""
     result = subprocess.run(
         ["git", "ls-files", "-z"],
         check=True,
@@ -41,6 +42,7 @@ def tracked_files() -> list[str]:
 
 
 def violation(path_text: str) -> str | None:
+    """Return a privacy-policy violation for a tracked path when present."""
     path = PurePosixPath(path_text)
     if path.parts and path.parts[0] in ALLOWED_ROOTS:
         return None
@@ -62,6 +64,7 @@ def violation(path_text: str) -> str | None:
 
 
 def main() -> int:
+    """Run the PAGE Line Editor desktop application."""
     problems = [(path, reason) for path in tracked_files() if (reason := violation(path))]
     if not problems:
         print("Data guard passed: Git tracks no manuscript or generated correction data.")

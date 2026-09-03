@@ -18,6 +18,7 @@ SCHEMA_VERSION = 1
 
 
 def _state_dict(state: Any) -> dict[str, Any]:
+    """Serialize one correction state into JSON-compatible data."""
     return {
         "line_id": state.line_id,
         "text": state.text,
@@ -61,6 +62,7 @@ def proposal_to_dict(proposal: LineCorrectionProposal) -> dict[str, Any]:
 
 
 def _counts(page: PageCorrectionProposal) -> dict[str, int]:
+    """Return proposal counts grouped by correction status."""
     counts = {status: 0 for status in STATUSES}
     for proposal in page.proposals:
         counts[proposal.status.value] += 1
@@ -68,11 +70,13 @@ def _counts(page: PageCorrectionProposal) -> dict[str, int]:
 
 
 def _mean_ratio(page: PageCorrectionProposal) -> float | None:
+    """Return the mean similarity ratio across applicable alignments."""
     values = [proposal.ratio for proposal in page.proposals if proposal.ratio is not None]
     return sum(values) / len(values) if values else None
 
 
 def page_to_dict(page: PageCorrectionProposal) -> dict[str, Any]:
+    """Serialize one page proposal into JSON-compatible data."""
     alignments = [proposal_to_dict(proposal) for proposal in page.proposals]
     records = {
         proposal.record_key: proposal_to_dict(proposal)
@@ -101,6 +105,7 @@ def page_to_dict(page: PageCorrectionProposal) -> dict[str, Any]:
 def report_payload(
     result: PageCorrectionProposal | FolderCorrectionProposal,
 ) -> dict[str, Any]:
+    """Build the complete JSON report payload."""
     folder = (
         result
         if isinstance(result, FolderCorrectionProposal)
@@ -125,6 +130,7 @@ def report_payload(
 def write_json_report(
     result: PageCorrectionProposal | FolderCorrectionProposal, destination: Path
 ) -> Path:
+    """Write json report."""
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(

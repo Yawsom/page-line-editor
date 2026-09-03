@@ -54,13 +54,16 @@ class BBox:
 
     @property
     def width(self) -> int:
+        """Return the bounding-box width."""
         return self.x_max - self.x_min
 
     @property
     def height(self) -> int:
+        """Return height."""
         return self.y_max - self.y_min
 
     def union(self, other: BBox) -> BBox:
+        """Return the bounding box covering both values."""
         return BBox(
             min(self.x_min, other.x_min),
             min(self.y_min, other.y_min),
@@ -81,6 +84,7 @@ class XmlLine:
 
     @property
     def width(self) -> int:
+        """Return the bounding-box width."""
         return self.bbox.width
 
 
@@ -137,10 +141,12 @@ def normalize_for_match(text: str) -> str:
 
 
 def normalize_for_display(text: str) -> str:
+    """Normalize for display."""
     return WHITESPACE_RE.sub(" ", (text or "").strip())
 
 
 def similarity(a: str, b: str) -> float:
+    """Return normalized text similarity on a zero-to-one scale."""
     na, nb = normalize_for_match(a), normalize_for_match(b)
     if not na and not nb:
         return 1.0
@@ -150,6 +156,7 @@ def similarity(a: str, b: str) -> float:
 
 
 def arabic_letter_ratio(text: str) -> float:
+    """Return the fraction of characters that are Arabic letters."""
     if not text:
         return 0.0
     letters = len(ARABIC_LETTER_RE.findall(text))
@@ -157,6 +164,7 @@ def arabic_letter_ratio(text: str) -> float:
 
 
 def digit_ratio(text: str) -> float:
+    """Return the fraction of characters that are decimal digits."""
     compact = (text or "").replace(" ", "")
     if not compact:
         return 0.0
@@ -164,6 +172,7 @@ def digit_ratio(text: str) -> float:
 
 
 def is_noise_line(line: XmlLine) -> bool:
+    """Return whether noise line."""
     text = line.text.strip()
     if not text:
         return True
@@ -179,6 +188,7 @@ def is_noise_line(line: XmlLine) -> bool:
 
 
 def parse_points(points: str | None) -> list[tuple[int, int]]:
+    """Parse points."""
     if not points:
         return []
     out: list[tuple[int, int]] = []
@@ -194,6 +204,7 @@ def parse_points(points: str | None) -> list[tuple[int, int]]:
 
 
 def line_text(elem: ET.Element) -> str:
+    """Return the normalized text stored on a PAGE line element."""
     unicode_el = elem.find("p:TextEquiv/p:Unicode", PAGE_NS)
     if unicode_el is not None and unicode_el.text:
         return unicode_el.text
@@ -201,6 +212,7 @@ def line_text(elem: ET.Element) -> str:
 
 
 def parse_page_xml(path: Path) -> tuple[str, str | None, list[XmlLine]]:
+    """Parse page xml."""
     tree = ET.parse(path)
     root = tree.getroot()
     page = root.find("p:Page", PAGE_NS)
@@ -239,6 +251,7 @@ def parse_page_xml(path: Path) -> tuple[str, str | None, list[XmlLine]]:
 
 
 def _xml_folio_key(path: Path, image_filename: str | None) -> str:
+    """Return the folio key inferred from an XML filename."""
     primary = Path(image_filename).stem if image_filename else path.stem
     if primary.lower().startswith("transkribus-"):
         stripped = primary[len("transkribus-") :]
@@ -248,6 +261,7 @@ def _xml_folio_key(path: Path, image_filename: str | None) -> str:
 
 
 def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
+    """Parse ground truth."""
     from page_line_editor.application.ground_truth import parse_ground_truth_docx
 
     book = parse_ground_truth_docx(path)
@@ -258,6 +272,7 @@ def parse_ground_truth(path: Path) -> dict[str, list[GtLine]]:
 
 
 def median_spacing(lines: list[XmlLine]) -> float:
+    """Return the median vertical spacing between adjacent lines."""
     ys = [ln.baseline_y for ln in lines]
     diffs = [b - a for a, b in zip(ys, ys[1:], strict=False) if b - a > 1]
     if not diffs:
@@ -266,6 +281,7 @@ def median_spacing(lines: list[XmlLine]) -> float:
 
 
 def complementary_x(a: XmlLine, b: XmlLine) -> bool:
+    """Return whether two lines occupy complementary horizontal spans."""
     overlap = min(a.bbox.x_max, b.bbox.x_max) - max(a.bbox.x_min, b.bbox.x_min)
     min_w = min(a.width, b.width) or 1
     if overlap <= 0:
@@ -274,11 +290,13 @@ def complementary_x(a: XmlLine, b: XmlLine) -> bool:
 
 
 def join_rtl_text(lines: list[XmlLine]) -> str:
+    """Return non-empty line text joined in right-to-left order."""
     ordered = sorted(lines, key=lambda ln: -ln.bbox.x_max)
     return " ".join(ln.text.strip() for ln in ordered if ln.text.strip())
 
 
 def merge_xml_lines(members: list[XmlLine]) -> XmlLine:
+    """Merge xml lines."""
     members_sorted = sorted(members, key=lambda ln: -ln.bbox.x_max)
     bbox = members_sorted[0].bbox
     for extra in members_sorted[1:]:
@@ -296,6 +314,7 @@ def merge_xml_lines(members: list[XmlLine]) -> XmlLine:
 
 
 def apply_geometric_merges(lines: list[XmlLine], gt_texts: list[str]) -> list[XmlLine]:
+    """Apply geometric merges."""
     if len(lines) < 2:
         return lines
     spacing = median_spacing(lines)
@@ -329,6 +348,7 @@ def apply_geometric_merges(lines: list[XmlLine], gt_texts: list[str]) -> list[Xm
 
 
 def pair_cost(xml_text: str, gt_text: str) -> float:
+    """Return the dynamic-programming cost of one alignment pair."""
     ratio = similarity(xml_text, gt_text)
     if ratio < MATCH_FLOOR:
         return 1.0 + (MATCH_FLOOR - ratio)
@@ -336,6 +356,7 @@ def pair_cost(xml_text: str, gt_text: str) -> float:
 
 
 def join_improves(left: XmlLine, right: XmlLine, gt_text: str) -> bool:
+    """Return whether joining two XML lines improves the target match."""
     if left.noise or right.noise:
         return False
     joined = join_rtl_text([left, right])
@@ -344,12 +365,14 @@ def join_improves(left: XmlLine, right: XmlLine, gt_text: str) -> bool:
 
 
 def gt_join_improves(xml_text: str, left: GtLine, right: GtLine) -> bool:
+    """Return whether joining ground-truth lines improves the match."""
     combined = f"{left.text} {right.text}"
     solo = max(similarity(xml_text, left.text), similarity(xml_text, right.text))
     return similarity(xml_text, combined) >= solo + JOIN_IMPROVE
 
 
 def dp_align(xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> list[Alignment]:
+    """Return dynamic-programming alignments for source and ground-truth lines."""
     n, m = len(xml_lines), len(gt_lines)
     inf = 10**6
     cost = [[inf] * (m + 1) for _ in range(n + 1)]
@@ -363,12 +386,14 @@ def dp_align(xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> list[Alignment
         back[0][j] = ("missing", 0, j - 1)
 
     def xml_text(i0: int, i1: int) -> str:
+        """Return the XML-side text represented by an alignment."""
         chunk = xml_lines[i0:i1]
         if len(chunk) == 1:
             return chunk[0].text
         return join_rtl_text(chunk)
 
     def gt_text(j0: int, j1: int) -> str:
+        """Return the ground-truth text represented by an alignment."""
         return " ".join(g.text for g in gt_lines[j0:j1])
 
     for i in range(1, n + 1):
@@ -429,6 +454,7 @@ def dp_align(xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> list[Alignment
 
 
 def char_spans(xml_text: str, gt_text: str) -> list[CharSpan]:
+    """Return character-level spans describing a text difference."""
     a = normalize_for_display(xml_text)
     b = normalize_for_display(gt_text)
     sm = SequenceMatcher(a=a, b=b, autojunk=False)
@@ -439,6 +465,7 @@ def char_spans(xml_text: str, gt_text: str) -> list[CharSpan]:
 
 
 def flags_for(xml_lines: list[XmlLine]) -> list[str]:
+    """Return diagnostic flags for the supplied XML lines."""
     flags: list[str] = []
     for ln in xml_lines:
         if ln.noise:
@@ -453,6 +480,7 @@ def flags_for(xml_lines: list[XmlLine]) -> list[str]:
 
 
 def classify(xml_lines: list[XmlLine], gt_lines: list[GtLine], ratio: float | None) -> str:
+    """Classify the alignment status and reviewer-visible flags."""
     if xml_lines and not gt_lines:
         return "EXTRA"
     if gt_lines and not xml_lines:
@@ -468,6 +496,7 @@ def classify(xml_lines: list[XmlLine], gt_lines: list[GtLine], ratio: float | No
 
 
 def make_alignment(xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> Alignment:
+    """Build an alignment record from source and ground-truth lines."""
     xml_text = xml_lines[0].text if len(xml_lines) == 1 else join_rtl_text(xml_lines) if xml_lines else ""
     if xml_lines and any(ln.merged_from for ln in xml_lines) and len(xml_lines) == 1:
         xml_text = xml_lines[0].text
@@ -499,6 +528,7 @@ def make_alignment(xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> Alignmen
 
 def align_page(folio: str, xml_path: Path | None, image_filename: str | None,
                xml_lines: list[XmlLine], gt_lines: list[GtLine]) -> PageResult:
+    """Align one PAGE XML page with its ground-truth transcription."""
     gt_texts = [g.text for g in gt_lines]
     working = apply_geometric_merges(xml_lines, gt_texts)
     alignments = dp_align(working, gt_lines)
@@ -513,19 +543,23 @@ def align_page(folio: str, xml_path: Path | None, image_filename: str | None,
 
 
 def qname(tag: str) -> str:
+    """Build a qualified PAGE XML tag name."""
     return f"{{{PAGE_NS_URI}}}{tag}"
 
 
 def format_points(points: list[tuple[int, int]]) -> str:
+    """Format points."""
     return " ".join(f"{x},{y}" for x, y in points)
 
 
 def convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Return the convex hull enclosing the supplied points."""
     pts = sorted(set(points))
     if len(pts) <= 2:
         return pts
 
     def cross(o: tuple[int, int], a: tuple[int, int], b: tuple[int, int]) -> int:
+        """Return the orientation cross product used by the hull algorithm."""
         return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
     lower: list[tuple[int, int]] = []
@@ -542,6 +576,7 @@ def convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 
 def elem_points(elem: ET.Element, tag: str) -> list[tuple[int, int]]:
+    """Return parsed PAGE points from an XML element."""
     child = elem.find(f"p:{tag}", PAGE_NS)
     if child is None:
         return []
@@ -549,6 +584,7 @@ def elem_points(elem: ET.Element, tag: str) -> list[tuple[int, int]]:
 
 
 def elem_width(elem: ET.Element) -> int:
+    """Return an XML element width when it is available."""
     pts = elem_points(elem, "Coords")
     if not pts:
         return 0
@@ -556,6 +592,7 @@ def elem_width(elem: ET.Element) -> int:
 
 
 def set_points(elem: ET.Element, tag: str, points: list[tuple[int, int]]) -> None:
+    """Set points."""
     child = elem.find(f"p:{tag}", PAGE_NS)
     if child is None:
         child = ET.SubElement(elem, qname(tag))
@@ -566,6 +603,7 @@ def set_points(elem: ET.Element, tag: str, points: list[tuple[int, int]]) -> Non
 
 
 def set_line_unicode(elem: ET.Element, text: str) -> None:
+    """Set line unicode."""
     for word in list(elem.findall("p:Word", PAGE_NS)):
         elem.remove(word)
     te = elem.find("p:TextEquiv", PAGE_NS)
@@ -578,6 +616,7 @@ def set_line_unicode(elem: ET.Element, text: str) -> None:
 
 
 def set_reading_order(elem: ET.Element, index: int) -> None:
+    """Set reading order."""
     replacement = f"readingOrder {{index:{index};}}"
     custom = elem.get("custom") or ""
     if READING_ORDER_RE.search(custom):
@@ -588,6 +627,7 @@ def set_reading_order(elem: ET.Element, index: int) -> None:
 
 
 def pick_primary_id(ids: list[str], by_id: dict[str, ET.Element]) -> str:
+    """Choose the surviving line identifier for a merge."""
     present = [i for i in ids if i in by_id]
     if not present:
         return ids[0]
@@ -595,6 +635,7 @@ def pick_primary_id(ids: list[str], by_id: dict[str, ET.Element]) -> str:
 
 
 def union_line_geometry(primary: ET.Element, members: list[ET.Element]) -> None:
+    """Return merged polygon and baseline geometry for source lines."""
     coords: list[tuple[int, int]] = []
     baseline: list[tuple[int, int]] = []
     for elem in members:
@@ -700,6 +741,7 @@ def serialize_transkribus_xml(root: ET.Element) -> str:
 
 
 def _atomic_write_text(dest: Path, text: str) -> None:
+    """Atomically write UTF-8 text to the destination file."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     descriptor, raw_temp = tempfile.mkstemp(prefix=f".{dest.name}.", suffix=".tmp", dir=dest.parent)
     temp_path = Path(raw_temp)
@@ -721,6 +763,7 @@ def write_corrected_xml(
     delete_all_extras: bool = False,
     delete_noise_extras: bool = False,
 ) -> None:
+    """Write corrected xml."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for page in pages:
         if not page.xml_path:
@@ -747,6 +790,7 @@ def write_corrected_xml(
 
 
 def alignment_to_dict(item: Alignment) -> dict:
+    """Serialize one alignment into report data."""
     return {
         "status": item.status,
         "xml_ids": item.xml_ids,
@@ -762,6 +806,7 @@ def alignment_to_dict(item: Alignment) -> dict:
 
 
 def page_counts(page: PageResult) -> dict[str, int]:
+    """Return status counts for one corrected page."""
     counts = {key: 0 for key in STATUSES}
     for item in page.alignments:
         counts[item.status] = counts.get(item.status, 0) + 1
@@ -769,6 +814,7 @@ def page_counts(page: PageResult) -> dict[str, int]:
 
 
 def mean_ratio(page: PageResult) -> float | None:
+    """Return the mean similarity ratio across applicable alignments."""
     ratios = [a.ratio for a in page.alignments if a.ratio is not None]
     if not ratios:
         return None
@@ -776,6 +822,7 @@ def mean_ratio(page: PageResult) -> float | None:
 
 
 def render_spans(spans: list[CharSpan], side: str) -> str:
+    """Render character-difference spans as safe HTML."""
     parts: list[str] = []
     for span in spans:
         text = span.xml if side == "xml" else span.gt
@@ -857,6 +904,7 @@ th, td { border-bottom: 1px solid var(--rule); padding: .45rem .5rem; text-align
 
 
 def page_html(page: PageResult) -> str:
+    """Render one page correction result as HTML."""
     counts = page_counts(page)
     avg = mean_ratio(page)
     avg_s = "—" if avg is None else f"{avg:.3f}"
@@ -919,6 +967,7 @@ def page_html(page: PageResult) -> str:
 
 
 def index_html(pages: list[PageResult], gt_only: list[str], xml_only: list[str]) -> str:
+    """Render the correction report index as HTML."""
     body_rows = []
     for page in pages:
         counts = page_counts(page)
@@ -970,6 +1019,7 @@ def index_html(pages: list[PageResult], gt_only: list[str], xml_only: list[str])
 
 
 def write_reports(pages: list[PageResult], gt_only: list[str], xml_only: list[str], out_dir: Path) -> None:
+    """Write reports."""
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "pages": [
@@ -998,6 +1048,7 @@ def write_reports(pages: list[PageResult], gt_only: list[str], xml_only: list[st
 
 
 def print_summary(pages: list[PageResult], gt_only: list[str], xml_only: list[str]) -> None:
+    """Print a concise correction summary for completed pages."""
     print(f"{'folio':<8} {'xml':>4} {'gt':>4} {'MATCH':>6} {'OCR':>5} {'MERGE':>6} {'SPLIT':>6} {'EXTRA':>6} {'MISS':>5} {'ratio':>7}")
     for page in pages:
         c = page_counts(page)
@@ -1019,6 +1070,7 @@ def print_summary(pages: list[PageResult], gt_only: list[str], xml_only: list[st
 
 
 def load_xml_pages(xml_dir: Path) -> dict[str, tuple[Path, str | None, list[XmlLine]]]:
+    """Load xml pages."""
     pages: dict[str, tuple[Path, str | None, list[XmlLine]]] = {}
     for path in sorted(xml_dir.glob("*.xml")):
         folio, image_filename, lines = parse_page_xml(path)
@@ -1037,6 +1089,7 @@ def run(
     delete_all_extras: bool = False,
     delete_noise_extras: bool = False,
 ) -> list[PageResult]:
+    """Run this operation."""
     gt_pages = parse_ground_truth(gt_path)
     xml_pages = load_xml_pages(xml_dir)
     paired = sorted(set(gt_pages) & set(xml_pages), key=folio_sort_key)
@@ -1060,6 +1113,7 @@ def run(
 
 
 def folio_sort_key(folio: str) -> tuple[int, str]:
+    """Return a natural sort key for a folio identifier."""
     match = re.match(r"(\d+)([rv])", folio)
     if not match:
         return (10**9, folio)
@@ -1067,6 +1121,7 @@ def folio_sort_key(folio: str) -> tuple[int, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the PAGE Line Editor desktop application."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--gt", type=Path, default=Path("local_data/ground_truth/S155-transcription.docx")

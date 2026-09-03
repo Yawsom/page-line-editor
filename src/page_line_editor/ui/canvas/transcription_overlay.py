@@ -37,6 +37,7 @@ class TranscriptionEdit(QPlainTextEdit):
     navigateRequested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the TranscriptionEdit instance."""
         super().__init__(parent)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -44,17 +45,21 @@ class TranscriptionEdit(QPlainTextEdit):
         self.document().setDocumentMargin(0)
 
     def setPlainText(self, value: str) -> None:  # noqa: N802 - Qt API refinement
+        """Set text while preserving right-to-left editor styling."""
         super().setPlainText(value.replace("\r", " ").replace("\n", " "))
 
     def text(self) -> str:
+        """Return text."""
         return self.toPlainText()
 
     def setCursorPosition(self, position: int) -> None:  # noqa: N802 - compatibility API
+        """Place the editor cursor at a bounded text offset."""
         cursor = self.textCursor()
         cursor.setPosition(max(0, min(position, len(self.toPlainText()))))
         self.setTextCursor(cursor)
 
     def setAlignment(self, alignment: Qt.AlignmentFlag) -> None:  # noqa: N802
+        """Apply block alignment without discarding the active selection."""
         cursor = self.textCursor()
         position = cursor.position()
         cursor.select(QTextCursor.SelectionType.Document)
@@ -70,6 +75,7 @@ class TranscriptionEdit(QPlainTextEdit):
         ranges: tuple[tuple[int, int], ...],
         color: QColor,
     ) -> None:
+        """Set addition ranges."""
         selections: list[QTextEdit.ExtraSelection] = []
         for start, end in ranges:
             selection = cast(Any, QTextEdit.ExtraSelection())
@@ -83,6 +89,7 @@ class TranscriptionEdit(QPlainTextEdit):
         self.setExtraSelections(selections)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Handle the Qt key press event."""
         if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
             Qt.Key.Key_Up,
             Qt.Key.Key_Down,
@@ -101,6 +108,7 @@ class TranscriptionEdit(QPlainTextEdit):
         super().keyPressEvent(event)
 
     def insertFromMimeData(self, source: QMimeData) -> None:  # noqa: N802 - Qt override
+        """Insert plain clipboard text and reject rich formatting."""
         self.insertPlainText(source.text().replace("\r", " ").replace("\n", " "))
 
 
@@ -111,6 +119,7 @@ class TranscriptionOverlay(QFrame):
     navigateLineRequested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the TranscriptionOverlay instance."""
         super().__init__(parent)
         self.setObjectName("transcriptionOverlay")
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -207,6 +216,7 @@ class TranscriptionOverlay(QFrame):
 
     @staticmethod
     def _diff_row(name: str, gutter: QLabel, content: QWidget) -> QFrame:
+        """Build the inline correction-difference row."""
         row = QFrame()
         row.setObjectName(name)
         gutter.setObjectName(f"{name}Gutter")
@@ -221,9 +231,11 @@ class TranscriptionOverlay(QFrame):
 
     @property
     def line(self) -> LineAdapter | None:
+        """Return line."""
         return self._line
 
     def set_line(self, line: LineAdapter | None) -> None:
+        """Display one selected line and its correction state in the overlay."""
         if self._line is not None and line is not self._line:
             self.commit_if_changed()
         self._line = line
@@ -255,10 +267,12 @@ class TranscriptionOverlay(QFrame):
         self.raise_()
 
     def refresh(self) -> None:
+        """Refresh the overlay from its selected line adapter."""
         if self._line is not None:
             self.set_line(self._line)
 
     def set_diff_visible(self, visible: bool) -> None:
+        """Set diff visible."""
         self._diff_visible = visible
         show_diff = visible and self._comparison_active
         self.status_badge.setVisible(show_diff)
@@ -269,6 +283,7 @@ class TranscriptionOverlay(QFrame):
         self.adjustSize()
 
     def set_text_direction(self, direction: Qt.LayoutDirection) -> None:
+        """Set text direction."""
         self.editor.setLayoutDirection(direction)
         self.original_label.setLayoutDirection(direction)
         alignment = (
@@ -280,6 +295,7 @@ class TranscriptionOverlay(QFrame):
         self.original_label.setAlignment(alignment | Qt.AlignmentFlag.AlignVCenter)
 
     def commit_if_changed(self) -> bool:
+        """Commit the editor text only when it differs from the selected line."""
         if self._line is None:
             return False
         value = self.editor.toPlainText()
@@ -290,18 +306,22 @@ class TranscriptionOverlay(QFrame):
         return True
 
     def commit(self) -> None:
+        """Commit the current overlay text to the selected line."""
         self.commit_if_changed()
 
     def _commit_or_keep(self) -> None:
+        """Commit or keep."""
         self.commit_if_changed()
         if self._comparison_active:
             self._keep()
 
     def cancel(self) -> None:
+        """Discard uncommitted overlay text and restore the selected line."""
         self.editor.setPlainText(self._committed_text)
         self.editor.selectAll()
 
     def anchor_below(self, line_rect: QRect, viewport_width: int) -> None:
+        """Place the overlay immediately beneath selected line geometry."""
         available = max(320, viewport_width - 20)
         geometry_width = max(320, line_rect.width())
         width = min(geometry_width, available, self.maximumWidth())
@@ -329,6 +349,7 @@ class TranscriptionOverlay(QFrame):
         self.move(x, line_rect.bottom() + 2)
 
     def _apply_diff_style(self) -> None:
+        """Apply diff style."""
         dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
         show_diff = self._comparison_active and self._diff_visible
         if dark:
@@ -386,6 +407,7 @@ class TranscriptionOverlay(QFrame):
         )
 
     def _update_diff_markup(self) -> None:
+        """Update diff markup."""
         show_diff = self._comparison_active and self._diff_visible
         if not show_diff:
             self.original_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -402,14 +424,17 @@ class TranscriptionOverlay(QFrame):
         self.editor.set_addition_ranges(difference.addition_ranges, highlight)
 
     def _keep(self) -> None:
+        """Request acceptance of the selected correction."""
         if self._line is not None:
             self.keepRequested.emit(self._line.id)
 
     def _reject(self) -> None:
+        """Request rejection of the selected correction."""
         if self._line is not None:
             self.rejectRequested.emit(self._line.id)
 
     def event(self, event: QEvent) -> bool:
+        """Handle the Qt event."""
         result = super().event(event)
         if event.type() == QEvent.Type.PaletteChange:
             self.setAutoFillBackground(True)

@@ -23,6 +23,7 @@ class SaveError(RuntimeError):
 
 class ValidationFailed(SaveError):
     def __init__(self, report: ValidationReport) -> None:
+        """Initialize the ValidationFailed instance."""
         super().__init__("Candidate PAGE XML did not pass blocking validation")
         self.report = report
 
@@ -69,9 +70,11 @@ def _sync_directory(directory: Path) -> str | None:
 
 class SaveService:
     def __init__(self, history_directory: str | Path) -> None:
+        """Initialize the SaveService instance."""
         self.history = HistoryService(history_directory)
 
     def save(self, document: PageDocument) -> SaveResult:
+        """Validate, back up, and atomically persist the active PAGE document."""
         text_edited_ids = tuple(
             line.id
             for line in document.lines

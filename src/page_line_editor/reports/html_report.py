@@ -30,6 +30,7 @@ th,td { text-align:start; border-bottom:1px solid var(--rule); padding:.45rem; }
 
 
 def _render_diffs(diffs: tuple[CharDiff, ...], side: str) -> str:
+    """Render character differences into safe HTML markup."""
     parts: list[str] = []
     for diff in diffs:
         value = diff.before if side == "before" else diff.after
@@ -49,6 +50,7 @@ def _render_diffs(diffs: tuple[CharDiff, ...], side: str) -> str:
 
 
 def _record_html(proposal: LineCorrectionProposal) -> str:
+    """Render one correction proposal as an HTML record."""
     before = (
         _render_diffs(proposal.char_diffs, "before")
         if proposal.char_diffs
@@ -74,6 +76,7 @@ def _record_html(proposal: LineCorrectionProposal) -> str:
 
 
 def page_html(page: PageCorrectionProposal) -> str:
+    """Render one page correction result as HTML."""
     records = "".join(_record_html(proposal) for proposal in page.proposals)
     title = page.folio or Path(page.xml_filename).stem
     return f"""<!doctype html>
@@ -85,11 +88,13 @@ def page_html(page: PageCorrectionProposal) -> str:
 
 
 def _safe_stem(filename: str) -> str:
+    """Return a filesystem-safe report filename stem."""
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(filename).stem).strip("._")
     return stem or "page"
 
 
 def index_html(folder: FolderCorrectionProposal) -> str:
+    """Render the correction report index as HTML."""
     rows: list[str] = []
     for page in folder.pages:
         counts = {status: 0 for status in STATUSES}
@@ -117,6 +122,7 @@ def index_html(folder: FolderCorrectionProposal) -> str:
 def write_html_report(
     result: PageCorrectionProposal | FolderCorrectionProposal, destination: Path
 ) -> Path:
+    """Write html report."""
     folder = (
         result
         if isinstance(result, FolderCorrectionProposal)

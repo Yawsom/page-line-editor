@@ -62,6 +62,7 @@ class DocumentLineState:
 
     @classmethod
     def capture(cls, line: TextLine) -> DocumentLineState:
+        """Capture the complete reversible state of one document line."""
         return cls(
             line_id=line.id,
             text=line.text,
@@ -76,6 +77,7 @@ class DocumentLineState:
         )
 
     def restore(self, line: TextLine) -> None:
+        """Restore the captured state to one document line."""
         line.text = self.text
         line.polygon = self.polygon
         line.baseline = self.baseline
@@ -104,14 +106,17 @@ class AppliedProposal:
 
 
 def _point(value: tuple[int, int]) -> Point:
+    """Convert an integer coordinate pair into a domain Point."""
     return Point(value[0], value[1])
 
 
 def _polygon(values: tuple[tuple[int, int], ...]) -> Polygon:
+    """Return polygon."""
     return Polygon(tuple(_point(value) for value in values))
 
 
 def _baseline(values: tuple[tuple[int, int], ...]) -> Polyline | None:
+    """Return baseline."""
     return Polyline(tuple(_point(value) for value in values)) if values else None
 
 
@@ -142,6 +147,7 @@ def _correction_input(document: PageDocument) -> PageCorrectionInput:
 
 
 def _current_core(line: TextLine) -> tuple[object, ...]:
+    """Return correction-relevant fields from a live line."""
     return (
         line.text,
         tuple((point.x, point.y) for point in line.polygon.points),
@@ -151,6 +157,7 @@ def _current_core(line: TextLine) -> tuple[object, ...]:
 
 
 def _proposal_core(state: LineState) -> tuple[object, ...]:
+    """Return correction-relevant fields from a proposed state."""
     return (
         state.text,
         state.polygon,
@@ -160,6 +167,7 @@ def _proposal_core(state: LineState) -> tuple[object, ...]:
 
 
 def _diff_label(proposal: LineCorrectionProposal) -> str:
+    """Build a concise reviewer label for one proposal."""
     if proposal.after_text is None:
         return f"{proposal.status.value}: {proposal.before_text or '—'}"
     return f"{proposal.before_text or '—'} → {proposal.after_text or '—'}"
@@ -176,6 +184,7 @@ class PageAutoCorrectionRun:
         audit: AutoAuditPaths,
         normalize_nfc: bool = True,
     ) -> None:
+        """Initialize the PageAutoCorrectionRun instance."""
         self.document = document
         self.proposal = proposal
         self.applications = applications
@@ -192,15 +201,18 @@ class PageAutoCorrectionRun:
         self._write_manifest()
 
     def _normalize(self, text: str) -> str:
+        """Normalize text according to the selected correction policy."""
         return unicodedata.normalize("NFC", text) if self.normalize_nfc else text
 
     def application_for_line(self, line_id: str) -> AppliedProposal:
+        """Return the correction application affecting a line."""
         try:
             return self._by_line_id[line_id]
         except KeyError as exc:
             raise KeyError(f"Line {line_id!r} has no correction proposal") from exc
 
     def keep_line(self, line_id: str) -> AppliedProposal:
+        """Accept one proposed correction and record the reviewer decision."""
         application = self.application_for_line(line_id)
         if application.decision is ReviewDecision.KEPT:
             return application
@@ -226,6 +238,7 @@ class PageAutoCorrectionRun:
         return application
 
     def reject_line(self, line_id: str) -> AppliedProposal:
+        """Restore one proposed correction to its captured pre-run state."""
         application = self.application_for_line(line_id)
         if application.decision is ReviewDecision.REJECTED:
             return application
@@ -239,23 +252,27 @@ class PageAutoCorrectionRun:
         return application
 
     def keep_page(self) -> None:
+        """Accept all actionable page corrections through one undoable command."""
         for application in self.applications:
             if application.proposal.line_ids:
                 self.keep_line(application.proposal.line_ids[0])
 
     def reject_page(self) -> None:
+        """Reject page."""
         for application in self.applications:
             if application.proposal.line_ids:
                 self.reject_line(application.proposal.line_ids[0])
 
     @property
     def decisions(self) -> dict[str, ReviewDecision]:
+        """Return decisions."""
         return {
             application.proposal.proposal_id: application.decision
             for application in self.applications
         }
 
     def _write_manifest(self) -> None:
+        """Write the current correction decisions to the audit manifest."""
         payload = {
             "schema_version": 1,
             "source_xml": str(self.document.source_path),
@@ -281,6 +298,7 @@ class AutoCorrectionWorkflow:
     """Prepare on a worker thread, then apply on the GUI thread without Qt."""
 
     def load_ground_truth(self, path: str | Path) -> GroundTruthBook:
+        """Load ground truth."""
         return parse_ground_truth_docx(path)
 
     def propose(
@@ -290,6 +308,7 @@ class AutoCorrectionWorkflow:
         settings: CorrectionSettings | None = None,
         cancel_token: CancellationToken | None = None,
     ) -> PageCorrectionProposal:
+        """Create a pure correction proposal for the supplied page."""
         lines = (
             ground_truth.lines_for_document(document)
             if isinstance(ground_truth, GroundTruthBook)
@@ -395,6 +414,7 @@ class AutoCorrectionWorkflow:
         cancel_token: CancellationToken | None = None,
         normalize_nfc: bool = True,
     ) -> PageAutoCorrectionRun:
+        """Create and apply a reviewable correction run for one PAGE document."""
         proposal = self.propose(document, ground_truth, settings, cancel_token)
         return self.apply(document, proposal, audit_root, normalize_nfc=normalize_nfc)
 
@@ -404,6 +424,7 @@ class AutoCorrectionWorkflow:
         proposal: PageCorrectionProposal,
         audit_root: Path,
     ) -> AutoAuditPaths:
+        """Create the immutable audit files for one correction run."""
         source = document.source_path
         if not source.is_file():
             raise AutoCorrectionWorkflowError(f"Source XML does not exist: {source}")

@@ -25,6 +25,7 @@ def point_xy(point: Any) -> PointTuple:
 
 
 def shape_points(shape: Any) -> tuple[PointTuple, ...]:
+    """Return normalized coordinate pairs from a geometry-like value."""
     if shape is None:
         return ()
     values = shape.points if hasattr(shape, "points") else shape
@@ -32,6 +33,7 @@ def shape_points(shape: Any) -> tuple[PointTuple, ...]:
 
 
 def _point_like(sample: Any, xy: PointTuple) -> Any:
+    """Create a point matching the source point representation."""
     x, y = xy
     if sample is None or isinstance(sample, tuple):
         return (x, y)
@@ -44,6 +46,7 @@ def _point_like(sample: Any, xy: PointTuple) -> Any:
 
 
 def _shape_like(shape: Any, points: Sequence[PointTuple]) -> Any:
+    """Create geometry matching the source shape representation."""
     if shape is None:
         return tuple(points)
     source_points = shape.points if hasattr(shape, "points") else shape
@@ -64,6 +67,7 @@ def _shape_like(shape: Any, points: Sequence[PointTuple]) -> Any:
 
 
 def _read(source: Any, names: Iterable[str], default: Any = None) -> Any:
+    """Read the first available attribute from a duck-typed source."""
     for name in names:
         if hasattr(source, name):
             return getattr(source, name)
@@ -86,52 +90,63 @@ class LineAdapter:
     _baseline: tuple[PointTuple, ...] = ()
 
     def __post_init__(self) -> None:
+        """Validate and normalize dataclass state after initialization."""
         self._text = str(_read(self.source, ("current_text", "text"), ""))
         self._polygon = shape_points(_read(self.source, ("current_polygon", "polygon"), ()))
         self._baseline = shape_points(_read(self.source, ("current_baseline", "baseline"), ()))
 
     @property
     def id(self) -> str:
+        """Return the stable line identifier."""
         return str(_read(self.source, ("id", "line_id"), ""))
 
     @property
     def text(self) -> str:
+        """Return text."""
         return self._text
 
     @property
     def polygon(self) -> tuple[PointTuple, ...]:
+        """Return polygon."""
         return self._polygon
 
     @property
     def baseline(self) -> tuple[PointTuple, ...]:
+        """Return baseline."""
         return self._baseline
 
     @property
     def diff_text(self) -> str:
+        """Return the display text for a correction difference."""
         value = _read(self.source, ("diff_text", "correction_diff", "diff"), "")
         return str(value or "")
 
     @property
     def proposal_state(self) -> str:
+        """Return the normalized correction proposal state."""
         value = _read(self.source, ("proposal_state", "correction_state", "status"), "")
         return str(getattr(value, "value", value) or "").lower()
 
     @property
     def correction_status(self) -> str:
+        """Return the normalized correction status label."""
         value = _read(self.source, ("correction_status",), "")
         status = str(getattr(value, "value", value) or "").upper()
         return {"MATCH": "MATCHED"}.get(status, status)
 
     @property
     def pre_correction_text(self) -> str:
+        """Return the text that preceded automatic correction."""
         value = _read(self.source, ("pre_correction_text", "original_text"), "")
         return str(value or "")
 
     def set_text(self, value: str) -> None:
+        """Set text."""
         self._text = value
         self._write(("current_text", "text"), value, "text")
 
     def geometry(self) -> Geometry:
+        """Return geometry."""
         return self._polygon, self._baseline
 
     def set_geometry(
@@ -139,6 +154,7 @@ class LineAdapter:
         polygon: Sequence[PointTuple],
         baseline: Sequence[PointTuple],
     ) -> None:
+        """Set geometry."""
         self._polygon = tuple((float(x), float(y)) for x, y in polygon)
         self._baseline = tuple((float(x), float(y)) for x, y in baseline)
         old_polygon = _read(self.source, ("current_polygon", "polygon"), ())
@@ -155,6 +171,7 @@ class LineAdapter:
         )
 
     def _write(self, names: tuple[str, ...], value: Any, field: str) -> None:
+        """Write an adapter field to its source and change callback."""
         written = False
         for name in names:
             if hasattr(self.source, name):

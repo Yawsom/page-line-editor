@@ -40,22 +40,27 @@ class ValidationReport:
 
     @property
     def errors(self) -> list[ValidationIssue]:
+        """Return errors."""
         return [issue for issue in self.issues if issue.severity == Severity.ERROR]
 
     @property
     def warnings(self) -> list[ValidationIssue]:
+        """Return warnings."""
         return [issue for issue in self.issues if issue.severity == Severity.WARNING]
 
     @property
     def can_save(self) -> bool:
+        """Return whether save."""
         return self.core_valid and not self.errors
 
     @property
     def valid(self) -> bool:
+        """Return valid."""
         return self.can_save
 
 
 def _parser() -> etree.XMLParser:
+    """Return parser."""
     return etree.XMLParser(
         resolve_entities=False, no_network=True, load_dtd=False, recover=False, huge_tree=False
     )
@@ -63,18 +68,21 @@ def _parser() -> etree.XMLParser:
 
 @lru_cache(maxsize=1)
 def _schema() -> etree.XMLSchema:
+    """Return schema."""
     resource = files("page_line_editor.pagexml").joinpath("schemas/pagecontent-2013-07-15.xsd")
     with resource.open("rb") as stream:
         return etree.XMLSchema(etree.parse(stream, parser=_parser()))
 
 
 def _schema_errors(schema: etree.XMLSchema, tree: etree._ElementTree) -> list[str]:
+    """Return normalized XML-schema validation errors."""
     if schema.validate(tree):
         return []
     return [entry.message for entry in schema.error_log]
 
 
 def _core_tree(tree: etree._ElementTree) -> etree._ElementTree:
+    """Return core tree."""
     clone = deepcopy(tree)
     namespace = PAGE_2013_NAMESPACE
     metadata = clone.getroot().find(f"{{{namespace}}}Metadata")
@@ -91,6 +99,7 @@ def _core_tree(tree: etree._ElementTree) -> etree._ElementTree:
 
 
 def _int_attribute(element: etree._Element, name: str, issues: list[ValidationIssue]) -> int | None:
+    """Return an optional integer XML attribute and collect validation issues."""
     try:
         value = int(element.get(name, ""))
     except ValueError:
@@ -103,6 +112,7 @@ def _int_attribute(element: etree._Element, name: str, issues: list[ValidationIs
 
 
 def _semantic_issues(tree: etree._ElementTree) -> list[ValidationIssue]:
+    """Return semantic PAGE validation issues for the parsed tree."""
     issues: list[ValidationIssue] = []
     root = tree.getroot()
     namespace = etree.QName(root).namespace
@@ -112,6 +122,7 @@ def _semantic_issues(tree: etree._ElementTree) -> list[ValidationIssue]:
         ]
 
     def q(name: str) -> str:
+        """Build a qualified PAGE XML element name."""
         return f"{{{namespace}}}{name}"
 
     page = root.find(q("Page"))
@@ -290,6 +301,7 @@ def _semantic_issues(tree: etree._ElementTree) -> list[ValidationIssue]:
 
 
 def validate_tree(tree: etree._ElementTree) -> ValidationReport:
+    """Validate tree."""
     schema = _schema()
     strict_errors = _schema_errors(schema, tree)
     core_errors = _schema_errors(schema, _core_tree(tree))
@@ -316,6 +328,7 @@ def validate_tree(tree: etree._ElementTree) -> ValidationReport:
 
 
 def validate_xml(xml: bytes | str) -> ValidationReport:
+    """Validate xml."""
     try:
         root = etree.fromstring(xml if isinstance(xml, bytes) else xml.encode(), parser=_parser())
         tree = root.getroottree()
@@ -329,6 +342,7 @@ def validate_xml(xml: bytes | str) -> ValidationReport:
 
 
 def validate_document(document: PageDocument) -> ValidationReport:
+    """Validate a PAGE document by serializing its current candidate tree."""
     from .writer import build_candidate
 
     candidate, _ = build_candidate(document)

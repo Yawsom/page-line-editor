@@ -45,6 +45,7 @@ class _CorrectionTask(QRunnable):
         self,
         operation: Callable[[CancellationToken, Callable[[int, str], None]], object],
     ) -> None:
+        """Initialize the _CorrectionTask instance."""
         super().__init__()
         self.operation = operation
         self.token = CancellationToken()
@@ -52,6 +53,7 @@ class _CorrectionTask(QRunnable):
 
     @Slot()
     def run(self) -> None:
+        """Run this operation."""
         try:
             result = self.operation(self.token, self.signals.progress.emit)
         except Exception as error:  # routed to a user-visible error boundary
@@ -71,6 +73,7 @@ class _DocumentStateCommand(QUndoCommand):
         notify: Callable[[], None],
         label: str = "Apply automatic correction",
     ) -> None:
+        """Initialize the _DocumentStateCommand instance."""
         super().__init__(label)
         self.document = document
         self.before = before
@@ -78,6 +81,7 @@ class _DocumentStateCommand(QUndoCommand):
         self.notify = notify
 
     def _restore(self, states: tuple[DocumentLineState, ...]) -> None:
+        """Restore the captured state to one document line."""
         for state in states:
             try:
                 line = self.document.line_by_id(state.line_id)
@@ -88,9 +92,11 @@ class _DocumentStateCommand(QUndoCommand):
         self.notify()
 
     def redo(self) -> None:
+        """Redo this operation."""
         self._restore(self.after)
 
     def undo(self) -> None:
+        """Undo this operation."""
         self._restore(self.before)
 
 
@@ -105,6 +111,7 @@ class _ReviewDecisionCommand(QUndoCommand):
         notify: Callable[[], None],
         label: str,
     ) -> None:
+        """Initialize the _ReviewDecisionCommand instance."""
         super().__init__(label)
         self.run = run
         self.action = action
@@ -125,6 +132,7 @@ class _ReviewDecisionCommand(QUndoCommand):
         self._snapshots = tuple(snapshots)
 
     def redo(self) -> None:
+        """Redo this operation."""
         for line_id in self.line_ids:
             if self.action == "keep":
                 self.run.keep_line(line_id)
@@ -133,6 +141,7 @@ class _ReviewDecisionCommand(QUndoCommand):
         self.notify()
 
     def undo(self) -> None:
+        """Undo this operation."""
         by_proposal = {item.proposal.proposal_id: item for item in self.run.applications}
         for proposal_id, decision, states in self._snapshots:
             application = by_proposal[proposal_id]
@@ -157,6 +166,7 @@ class _ReadingOrderCommand(QUndoCommand):
         direction: int,
         notify: Callable[[str], None],
     ) -> None:
+        """Initialize the _ReadingOrderCommand instance."""
         line = document.line_by_id(line_id)
         region = next(region for region in document.regions if region.id == line.region_id)
         before = tuple(item.id for item in region.lines)
@@ -175,10 +185,12 @@ class _ReadingOrderCommand(QUndoCommand):
         self.setObsolete(self.before == self.after)
 
     def redo(self) -> None:
+        """Redo this operation."""
         self.document.restore_region_order(self.region_id, self.after)
         self.notify(self.line_id)
 
     def undo(self) -> None:
+        """Undo this operation."""
         self.document.restore_region_order(self.region_id, self.before)
         self.notify(self.line_id)
 
@@ -199,6 +211,7 @@ class _BatchResult:
 
 
 def _source_digest(path: Path) -> str:
+    """Return the SHA-256 digest of a source XML file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -217,6 +230,7 @@ class EditorController(QObject):
     """Own project state, background jobs, saving, and correction decisions."""
 
     def __init__(self, window: MainWindow) -> None:
+        """Initialize the EditorController instance."""
         super().__init__(window)
         self.window = window
         self.session = EditorSession()
@@ -230,6 +244,7 @@ class EditorController(QObject):
         self._connect()
 
     def _connect(self) -> None:
+        """Connect editor signals to controller actions."""
         window = self.window
         window.openProjectRequested.connect(self.open_project)
         window.pageRequested.connect(self.open_page)
@@ -246,6 +261,7 @@ class EditorController(QObject):
 
     @Slot(object)
     def open_project(self, paths: ProjectPaths) -> None:
+        """Open a project, load its optional ground truth, and populate the page browser."""
         try:
             ground_truth = (
                 self.workflow.load_ground_truth(paths.ground_truth_path)
@@ -277,6 +293,7 @@ class EditorController(QObject):
 
     @Slot(object)
     def open_page(self, pair: PagePair) -> None:
+        """Load the selected page into the editor session and canvas."""
         if self.session.project is None:
             return
         current = self.session.document
@@ -304,6 +321,7 @@ class EditorController(QObject):
             self._error("Could not open PAGE document", str(error))
 
     def _display(self, document: PageDocument, pair: PagePair) -> None:
+        """Display the active PAGE document and its correction review."""
         self.window.load_page(
             pair.image_path,
             document.active_lines,
@@ -318,6 +336,7 @@ class EditorController(QObject):
 
     @Slot()
     def save(self) -> None:
+        """Persist the active PAGE document and refresh the editor state."""
         if self.session.document is None:
             return
         try:
@@ -350,6 +369,7 @@ class EditorController(QObject):
 
     @Slot()
     def auto_correct_page(self) -> None:
+        """Start background correction for the active saved page."""
         document = self.session.document
         if document is None or not self._require_ground_truth() or self._task is not None:
             return
@@ -368,6 +388,7 @@ class EditorController(QObject):
             token: CancellationToken,
             progress: Callable[[int, str], None],
         ) -> PageCorrectionProposal:
+            """Run the requested background correction operation."""
             progress(10, "Preparing current page")
             proposal = self.workflow.propose(snapshot, book, cancel_token=token)
             progress(100, "Correction proposal ready")
@@ -377,6 +398,7 @@ class EditorController(QObject):
 
     @Slot()
     def auto_correct_batch(self) -> None:
+        """Start background correction for every eligible project page."""
         project = self.session.project
         if project is None or not self._require_ground_truth() or self._task is not None:
             return
@@ -395,6 +417,7 @@ class EditorController(QObject):
             token: CancellationToken,
             progress: Callable[[int, str], None],
         ) -> _BatchResult:
+            """Run the requested background correction operation."""
             results: list[_BatchProposal] = []
             errors: list[str] = []
             count = max(1, len(pairs))
@@ -426,6 +449,7 @@ class EditorController(QObject):
         operation: Callable[..., object],
         completed: Callable[[Any], None],
     ) -> None:
+        """Start one correction task and connect its lifecycle signals."""
         task = _CorrectionTask(operation)
         self._task = task
         task.signals.progress.connect(self.window.set_correction_progress)
@@ -437,12 +461,14 @@ class EditorController(QObject):
 
     @Slot()
     def cancel_correction(self) -> None:
+        """Cancel correction."""
         if self._task is not None:
             self._task.token.cancel()
             self.window.set_correction_progress(0, "Cancelling…")
 
     @Slot(str, int)
     def move_line_in_reading_order(self, line_id: str, direction: int) -> None:
+        """Move a line within its region through an undoable command."""
         document = self.session.document
         if document is None or direction == 0:
             return
@@ -461,6 +487,7 @@ class EditorController(QObject):
         self.window.undo_stack.push(command)
 
     def _apply_page_proposal(self, proposal: PageCorrectionProposal) -> None:
+        """Apply page proposal."""
         if self._task_cancelled():
             return
         document = self.session.document
@@ -490,6 +517,7 @@ class EditorController(QObject):
         )
 
     def _apply_batch_proposals(self, result_set: _BatchResult) -> None:
+        """Apply batch proposals."""
         if self._task_cancelled() or result_set.cancelled:
             self.window.statusBar().showMessage("Automatic correction cancelled", 5000)
             return
@@ -575,6 +603,7 @@ class EditorController(QObject):
         self.window.statusBar().showMessage(message, 8000)
 
     def _push_run_command(self, run: PageAutoCorrectionRun) -> None:
+        """Push one automatic-correction application onto the undo stack."""
         affected_ids = {
             snapshot.line_id
             for application in run.applications
@@ -601,6 +630,7 @@ class EditorController(QObject):
 
     @Slot(str)
     def keep_line(self, line_id: str) -> None:
+        """Accept the selected line correction through an undoable command."""
         run = self._current_run()
         if run is None:
             return
@@ -625,6 +655,7 @@ class EditorController(QObject):
 
     @Slot(str)
     def reject_line(self, line_id: str) -> None:
+        """Reject line."""
         run = self._current_run()
         if run is None:
             return
@@ -651,6 +682,7 @@ class EditorController(QObject):
 
     @Slot()
     def keep_page(self) -> None:
+        """Accept all actionable page corrections through one undoable command."""
         run = self._current_run()
         if run is None:
             return
@@ -672,6 +704,7 @@ class EditorController(QObject):
 
     @Slot()
     def reject_page(self) -> None:
+        """Reject page."""
         run = self._current_run()
         if run is None:
             return
@@ -697,13 +730,16 @@ class EditorController(QObject):
         self._sync_clean_state()
 
     def _current_run(self) -> PageAutoCorrectionRun | None:
+        """Return current run."""
         document = self.session.document
         return self.runs.get(document.source_path) if document is not None else None
 
     def _task_cancelled(self) -> bool:
+        """Return whether the active background task was cancelled."""
         return self._task is not None and self._task.token.cancelled
 
     def _is_page_dirty(self) -> bool:
+        """Return whether page dirty."""
         document = self.session.document
         if document is None:
             return False
@@ -712,6 +748,7 @@ class EditorController(QObject):
         return self._run_has_actionable_state(document.source_path)
 
     def _run_has_actionable_state(self, source_path: Path) -> bool:
+        """Run has actionable state."""
         run = self.runs.get(source_path)
         if run is None:
             return False
@@ -724,9 +761,11 @@ class EditorController(QObject):
 
     @Slot(bool)
     def _nfc_toggled(self, checked: bool) -> None:
+        """Store the selected NFC-normalization preference in the session."""
         self.session.normalize_nfc = checked
 
     def _refresh_document(self, selected_line_id: str | None = None) -> None:
+        """Refresh document."""
         document = self.session.document
         if document is None:
             return
@@ -734,11 +773,13 @@ class EditorController(QObject):
         self.window.set_correction_review(self.runs.get(document.source_path))
 
     def _sync_clean_state(self) -> None:
+        """Synchronize clean state."""
         document = self.session.document
         if document is not None and not document.is_dirty:
             self.window.undo_stack.setClean()
 
     def _require_ground_truth(self) -> bool:
+        """Return whether a ground-truth document is available, showing an error otherwise."""
         if self.ground_truth is not None:
             return True
         self._error(
@@ -748,10 +789,12 @@ class EditorController(QObject):
         return False
 
     def _show_validation(self, document: PageDocument) -> None:
+        """Display validation results attached to a PAGE document."""
         if document.validation_report is not None:
             self._show_validation_report(document.validation_report)
 
     def _show_validation_report(self, report: Any) -> None:
+        """Display structured PAGE validation results in the review panel."""
         strict = "valid" if report.strict_valid else "has vendor/schema differences"
         core = "valid" if report.core_valid else "invalid"
         summary = f"Strict PAGE: {strict} · editable PAGE core: {core}"
@@ -764,6 +807,7 @@ class EditorController(QObject):
 
     @Slot(str)
     def _correction_failed(self, message: str) -> None:
+        """Report a background correction failure and clear task state."""
         if "CorrectionCancelled" in message:
             self.window.statusBar().showMessage("Automatic correction cancelled", 5000)
         else:
@@ -771,10 +815,12 @@ class EditorController(QObject):
         self._finish_task()
 
     def _finish_task(self) -> None:
+        """Finish task."""
         self._task = None
         self.window.set_correction_progress(None, "")
 
     def _error(self, title: str, message: str) -> None:
+        """Show a controller error dialog."""
         QMessageBox.critical(self.window, title, message)
 
 

@@ -24,6 +24,7 @@ class PageScene(QGraphicsScene):
     geometryEditRequested = Signal(object, object, object, str)
 
     def __init__(self, parent=None) -> None:
+        """Initialize the PageScene instance."""
         super().__init__(parent)
         self.image_item: QGraphicsPixmapItem | None = None
         self.line_items: list[LineGraphicsItem] = []
@@ -39,6 +40,7 @@ class PageScene(QGraphicsScene):
     ) -> None:
         # selectionChanged can fire synchronously from clear(); discard Python
         # references before Qt deletes their underlying graphics objects.
+        """Set page."""
         self._active_line = None
         self.line_items = []
         self.clear()
@@ -66,15 +68,18 @@ class PageScene(QGraphicsScene):
         self.setSceneRect(image_rect.adjusted(0, 0, 0, 260))
 
     def set_theme(self, theme: Theme | str) -> None:
+        """Set theme."""
         self.theme = Theme(theme)
         for item in self.line_items:
             item.set_theme(self.theme)
 
     def set_overlay_visibility(self, polygons: bool, baselines: bool) -> None:
+        """Set overlay visibility."""
         for item in self.line_items:
             item.set_overlay_visibility(polygons, baselines)
 
     def selected_line_item(self) -> LineGraphicsItem | None:
+        """Return selected line item."""
         if self._active_line is not None and self._active_line.isSelected():
             return self._active_line
         return next(
@@ -83,12 +88,15 @@ class PageScene(QGraphicsScene):
         )
 
     def line_item(self, line_id: str) -> LineGraphicsItem | None:
+        """Return the canvas item for a line identifier."""
         return next((item for item in self.line_items if item.adapter.id == line_id), None)
 
     def _selection_changed(self) -> None:
+        """Update the active line after scene selection changes."""
         item = self.selected_line_item()
         self._active_line = item
         self.lineSelected.emit(item)
 
     def _activate_line(self, item: LineGraphicsItem) -> None:
+        """Remember a newly activated line item."""
         self._active_line = item

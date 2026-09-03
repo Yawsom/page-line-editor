@@ -32,6 +32,7 @@ class ProjectPaths:
 
 class _PathRow(QWidget):
     def __init__(self, label: str, mode: str, parent: QWidget | None = None) -> None:
+        """Initialize the _PathRow instance."""
         super().__init__(parent)
         self.mode = mode
         self.edit = QLineEdit(self)
@@ -45,6 +46,7 @@ class _PathRow(QWidget):
         self.button.clicked.connect(self.browse)
 
     def browse(self) -> None:
+        """Open a directory picker for this project-path row."""
         start = self.edit.text() or str(Path.home())
         if self.mode == "file":
             value, _ = QFileDialog.getOpenFileName(
@@ -63,6 +65,7 @@ class ProjectOpenDialog(QDialog):
     """Collect all paths needed to scan and later auto-correct a project."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the ProjectOpenDialog instance."""
         super().__init__(parent)
         self.setWindowTitle("Open PAGE project")
         self.setMinimumWidth(680)
@@ -101,6 +104,7 @@ class ProjectOpenDialog(QDialog):
         self._restore_settings()
 
     def paths(self) -> ProjectPaths:
+        """Return validated project paths selected in the dialog."""
         ground_truth = self.ground_truth_row.edit.text().strip()
         audit = self.audit_row.edit.text().strip()
         return ProjectPaths(
@@ -112,6 +116,7 @@ class ProjectOpenDialog(QDialog):
         )
 
     def accept(self) -> None:
+        """Validate project selections before accepting the dialog."""
         paths = self.paths()
         errors = []
         if not self.image_row.edit.text().strip() or not paths.image_directory.is_dir():
@@ -135,6 +140,7 @@ class ProjectOpenDialog(QDialog):
         super().accept()
 
     def _suggest_history(self) -> None:
+        """Suggest a correction-history directory beside the XML folder."""
         if self.audit_row.edit.isModified() or self.audit_row.edit.text():
             return
         xml_text = self.xml_row.edit.text().strip()
@@ -142,6 +148,7 @@ class ProjectOpenDialog(QDialog):
             self.audit_row.edit.setText(str(Path(xml_text).parent / "correction_history"))
 
     def _restore_settings(self) -> None:
+        """Restore settings."""
         settings = QSettings()
         self.image_row.edit.setText(str(settings.value("project/images", "")))
         self.xml_row.edit.setText(str(settings.value("project/xml", "")))

@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
     readingOrderMoveRequested = Signal(str, int)
 
     def __init__(self, parent=None) -> None:
+        """Initialize the MainWindow instance."""
         super().__init__(parent)
         self.setObjectName("mainWindow")
         self.setWindowTitle("PAGE Line Editor")
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         self._restore_preferences()
 
     def _build_docks(self) -> None:
+        """Build docks."""
         pages_dock = QDockWidget("Pages", self)
         pages_dock.setObjectName("pagesDock")
         pages_dock.setWidget(self.page_list)
@@ -115,6 +117,7 @@ class MainWindow(QMainWindow):
         tooltip: str = "",
         checkable: bool = False,
     ) -> QAction:
+        """Create and configure a window action."""
         action = QAction(text, self)
         action.setToolTip(tooltip or text)
         action.setStatusTip(tooltip or text)
@@ -125,6 +128,7 @@ class MainWindow(QMainWindow):
         return action
 
     def _build_actions(self) -> None:
+        """Build actions."""
         self.open_action = self._action(
             "Open Project…", self.open_project_dialog, QKeySequence.StandardKey.Open,
             "Open separate image and PAGE XML folders",
@@ -269,6 +273,7 @@ class MainWindow(QMainWindow):
         self.reject_change_shortcut.activated.connect(self._reject_selected_change)
 
     def _accept_selected_change(self) -> None:
+        """Accept selected change."""
         if self.canvas.has_pending_replacement:
             self.canvas.finish_replacement()
             return
@@ -277,6 +282,7 @@ class MainWindow(QMainWindow):
         self.canvas.accept_selected_correction()
 
     def _reject_selected_change(self) -> None:
+        """Reject selected change."""
         editor = self.canvas.overlay.editor
         if QApplication.focusWidget() is editor:
             # Keep ordinary text editing safe: Backspace rejects only while
@@ -291,6 +297,7 @@ class MainWindow(QMainWindow):
         self.canvas.reject_selected_correction()
 
     def _build_toolbar(self) -> None:
+        """Build toolbar."""
         toolbar = QToolBar("Editor", self)
         toolbar.setObjectName("editorToolbar")
         toolbar.setMovable(False)
@@ -358,6 +365,7 @@ class MainWindow(QMainWindow):
         text: str,
         menu: QMenu,
     ) -> QToolButton:
+        """Create a toolbar button that opens a menu immediately."""
         button = QToolButton(toolbar)
         button.setText(text)
         button.setMenu(menu)
@@ -366,6 +374,7 @@ class MainWindow(QMainWindow):
         return button
 
     def _connect_signals(self) -> None:
+        """Connect window widgets and canvas signals to window actions."""
         self.page_list.currentItemChanged.connect(self._page_item_changed)
         self.canvas.overlay.textCommitRequested.connect(self._commit_text)
         self.canvas.overlay.keepRequested.connect(self.keepCorrectionRequested)
@@ -391,6 +400,7 @@ class MainWindow(QMainWindow):
         self.review_panel.rejectLineRequested.connect(self.rejectCorrectionRequested)
 
     def open_project_dialog(self) -> None:
+        """Open project dialog."""
         if not self.confirm_discard_or_save("opening another project"):
             return
         dialog = ProjectOpenDialog(self)
@@ -433,6 +443,7 @@ class MainWindow(QMainWindow):
         on_change=None,
         page_size: tuple[int, int] | None = None,
     ) -> None:
+        """Load page."""
         self.canvas.set_page_size(*(page_size or (None, None)))
         self.canvas.set_page(image, lines, on_change)
         self._current_page_payload = page_payload
@@ -441,6 +452,7 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def set_correction_review(self, run: Any | None) -> None:
+        """Set correction review."""
         if run is None:
             self.review_panel.clear_corrections()
             return
@@ -506,15 +518,18 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def request_save(self) -> None:
+        """Commit pending text and request a safe document save."""
         self.canvas.overlay.commit_if_changed()
         self.saveRequested.emit()
 
     def mark_saved(self) -> None:
+        """Mark the window undo stack clean after a successful save."""
         self.undo_stack.clear()
         self.undo_stack.setClean()
         self.statusBar().showMessage("Saved", 3000)
 
     def previous_page(self) -> None:
+        """Select the preceding project page when one exists."""
         row = self.page_list.indexOfTopLevelItem(self.page_list.currentItem())
         if row > 0:
             item = self.page_list.topLevelItem(row - 1)
@@ -522,6 +537,7 @@ class MainWindow(QMainWindow):
                 self.page_list.setCurrentItem(item)
 
     def next_page(self) -> None:
+        """Select the following project page when one exists."""
         row = self.page_list.indexOfTopLevelItem(self.page_list.currentItem())
         if 0 <= row < self.page_list.topLevelItemCount() - 1:
             item = self.page_list.topLevelItem(row + 1)
@@ -529,11 +545,13 @@ class MainWindow(QMainWindow):
                 self.page_list.setCurrentItem(item)
 
     def set_theme(self, theme: Theme | str) -> None:
+        """Set theme."""
         self._theme = apply_theme(QApplication.instance(), theme)  # type: ignore[arg-type]
         self.canvas.page_scene.set_theme(self._theme)
         QSettings().setValue("ui/theme", self._theme.value)
 
     def set_transcription_mode(self, enabled: bool) -> None:
+        """Set transcription mode."""
         self._transcription_mode = bool(enabled)
         self.canvas.set_transcription_focus(self._transcription_mode)
         self.mode_actions[EditMode.SELECT].trigger()
@@ -548,11 +566,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{label} · Ctrl/Cmd+T to switch", 4000)
 
     def _activate_edit_mode(self, mode: EditMode | str) -> None:
+        """Leave transcription mode if needed and activate a canvas tool."""
         if self._transcription_mode:
             self.transcription_mode_action.trigger()
         self.mode_actions[EditMode(mode)].trigger()
 
     def _set_edit_mode(self, mode: EditMode | str) -> None:
+        """Set edit mode."""
         selected_mode = EditMode(mode)
         self.canvas.set_edit_mode(selected_mode)
         self._update_mode_indicator()
@@ -566,6 +586,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(guidance, 5000)
 
     def _move_selected_line(self, direction: int) -> None:
+        """Move selected line."""
         item = self.canvas.page_scene.selected_line_item()
         if item is None:
             self.statusBar().showMessage("Select a line before changing reading order.", 4000)
@@ -619,6 +640,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _activate_temporary_mode(self) -> None:
+        """Activate the held shortcut tool after its hold threshold."""
         if self._pending_mode_key is None:
             return
         mode = self._mode_key_actions[self._pending_mode_key]
@@ -627,6 +649,7 @@ class MainWindow(QMainWindow):
             self._temporary_mode = mode
 
     def _update_mode_indicator(self) -> None:
+        """Update mode indicator."""
         if self._transcription_mode:
             self.mode_indicator.setText("Mode: Transcription")
             return
@@ -634,14 +657,17 @@ class MainWindow(QMainWindow):
         self.mode_indicator.setText(f"Mode: {self.mode_actions[mode].text()}")
 
     def set_correction_progress(self, value: int | None, status: str = "") -> None:
+        """Set correction progress."""
         self.review_panel.set_correction_progress(value, status)
         if status:
             self.statusBar().showMessage(status)
 
     def set_validation(self, summary: str, messages: list[str] | tuple[str, ...] = ()) -> None:
+        """Set validation."""
         self.review_panel.set_validation(summary, messages)
 
     def confirm_discard_or_save(self, operation: str) -> bool:
+        """Ask how to handle unsaved changes before a destructive navigation action."""
         self.canvas.overlay.commit_if_changed()
         if self.undo_stack.isClean():
             return True
@@ -668,6 +694,7 @@ class MainWindow(QMainWindow):
         current: QTreeWidgetItem | None,
         previous: QTreeWidgetItem | None,
     ) -> None:
+        """Open the page selected in the page browser after save/discard confirmation."""
         if current is None:
             return
         if previous is not None and not self.confirm_discard_or_save("changing pages"):
@@ -679,6 +706,7 @@ class MainWindow(QMainWindow):
         self.pageRequested.emit(payload)
 
     def _commit_text(self, line: LineAdapter, value: str) -> None:
+        """Commit text."""
         if self.normalize_action.isChecked():
             value = unicodedata.normalize("NFC", value)
         before = line.text
@@ -686,6 +714,7 @@ class MainWindow(QMainWindow):
             return
 
         def notify(updated: LineAdapter) -> None:
+            """Notify the UI that the edit state changed."""
             item = self.canvas.page_scene.line_item(updated.id)
             if item is not None:
                 item.update()
@@ -694,16 +723,19 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(TextEditCommand(line, before, value, notify))
 
     def _update_overlays(self) -> None:
+        """Update overlays."""
         self.canvas.set_overlay_visibility(
             self.polygons_action.isChecked() and not self._transcription_mode,
             self.baselines_action.isChecked() and not self._transcription_mode,
         )
 
     def _update_diff(self) -> None:
+        """Update diff."""
         self.canvas.overlay.set_diff_visible(self.diff_action.isChecked())
         self.canvas.update_overlay_position()
 
     def _update_dirty_state(self, *args) -> None:
+        """Update dirty state."""
         del args
         dirty = not self.undo_stack.isClean()
         self.setWindowModified(dirty)
@@ -711,6 +743,7 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def _update_status(self, *args) -> None:
+        """Update status."""
         del args
         item = self.canvas.page_scene.selected_line_item()
         order = ""
@@ -726,6 +759,7 @@ class MainWindow(QMainWindow):
         )
 
     def _restore_preferences(self) -> None:
+        """Restore preferences."""
         theme = str(QSettings().value("ui/theme", Theme.SYSTEM.value))
         if theme not in {value.value for value in Theme}:
             theme = Theme.SYSTEM.value
@@ -733,6 +767,7 @@ class MainWindow(QMainWindow):
         self.set_theme(theme)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        """Handle the Qt close event."""
         if self.confirm_discard_or_save("quitting"):
             event.accept()
         else:

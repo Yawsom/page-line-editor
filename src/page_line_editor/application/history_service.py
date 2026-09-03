@@ -24,6 +24,7 @@ class FieldEdit:
 
 class DocumentHistory:
     def __init__(self, document: PageDocument) -> None:
+        """Initialize the DocumentHistory instance."""
         self.document = document
         self._commands: list[FieldEdit] = []
         self._cursor = 0
@@ -31,22 +32,27 @@ class DocumentHistory:
 
     @property
     def can_undo(self) -> bool:
+        """Return whether undo."""
         return self._cursor > 0
 
     @property
     def can_redo(self) -> bool:
+        """Return whether redo."""
         return self._cursor < len(self._commands)
 
     @property
     def is_clean(self) -> bool:
+        """Return whether clean."""
         return self._cursor == self._clean_cursor
 
     def _set(self, command: FieldEdit, *, forward: bool) -> None:
+        """Apply one history field edit to the live document."""
         line = self.document.line_by_id(command.line_id)
         setattr(line, command.field, command.after if forward else command.before)
         self.document.revision += 1
 
     def push(self, command: FieldEdit) -> None:
+        """Push this operation."""
         if command.before == command.after:
             return
         del self._commands[self._cursor :]
@@ -55,10 +61,12 @@ class DocumentHistory:
         self._cursor += 1
 
     def edit_text(self, line_id: str, text: str, *, label: str = "Edit transcription") -> None:
+        """Edit text."""
         line = self.document.line_by_id(line_id)
         self.push(FieldEdit(line_id, "text", line.text, text, label))
 
     def edit_polygon(self, line_id: str, polygon: Polygon, *, label: str = "Edit polygon") -> None:
+        """Edit polygon."""
         line = self.document.line_by_id(line_id)
         self.push(FieldEdit(line_id, "polygon", line.polygon, polygon, label))
 
@@ -69,6 +77,7 @@ class DocumentHistory:
         *,
         label: str = "Edit baseline",
     ) -> None:
+        """Edit baseline."""
         line = self.document.line_by_id(line_id)
         self.push(FieldEdit(line_id, "baseline", line.baseline, baseline, label))
 
@@ -84,6 +93,7 @@ class DocumentHistory:
         self.push(FieldEdit(line_id, "deleted", line.deleted, deleted, label))
 
     def undo(self) -> FieldEdit | None:
+        """Undo this operation."""
         if not self.can_undo:
             return None
         self._cursor -= 1
@@ -92,6 +102,7 @@ class DocumentHistory:
         return command
 
     def redo(self) -> FieldEdit | None:
+        """Redo this operation."""
         if not self.can_redo:
             return None
         command = self._commands[self._cursor]
@@ -100,9 +111,11 @@ class DocumentHistory:
         return command
 
     def mark_clean(self) -> None:
+        """Mark the current state as the saved baseline."""
         self._clean_cursor = self._cursor
 
     def clear(self) -> None:
+        """Clear this operation."""
         self._commands.clear()
         self._cursor = self._clean_cursor = 0
 
@@ -111,9 +124,11 @@ class HistoryService:
     """Creates immutable audit copies outside the live XML directory."""
 
     def __init__(self, root: str | Path) -> None:
+        """Initialize the HistoryService instance."""
         self.root = Path(root)
 
     def backup_manual(self, source: str | Path) -> Path:
+        """Copy a manual-edit source file into an immutable history run."""
         source_path = Path(source)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         run_dir = self.root / "manual" / f"{stamp}-{uuid4().hex[:8]}" / "originals"

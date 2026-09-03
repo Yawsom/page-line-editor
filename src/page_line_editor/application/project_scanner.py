@@ -42,10 +42,12 @@ class ProjectScanResult:
 
     @property
     def unmatched(self) -> list[ScanDiagnostic]:
+        """Return page pairs that could not be matched to both inputs."""
         return [item for item in self.diagnostics if item.code.startswith("unmatched.")]
 
 
 def _files(directory: Path, suffixes: frozenset[str]) -> list[Path]:
+    """Return files."""
     if not directory.is_dir():
         raise NotADirectoryError(directory)
     return sorted(
@@ -59,6 +61,7 @@ def _files(directory: Path, suffixes: frozenset[str]) -> list[Path]:
 
 
 def _index(paths: list[Path], key: Callable[[Path], str]) -> dict[str, list[Path]]:
+    """Return index."""
     result: dict[str, list[Path]] = {}
     for path in paths:
         result.setdefault(key(path), []).append(path)
@@ -152,4 +155,5 @@ class ProjectScanner:
     """Injectable facade used by the desktop session."""
 
     def scan(self, image_directory: str | Path, xml_directory: str | Path) -> ProjectScanResult:
+        """Pair project images with PAGE XML and report pairing diagnostics."""
         return scan_project(image_directory, xml_directory)

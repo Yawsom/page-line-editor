@@ -4,6 +4,7 @@ import sys
 
 
 def main() -> int:
+    """Run the PAGE Line Editor desktop application."""
     from page_line_editor.qt_bootstrap import prepare_qt_plugins
 
     prepare_qt_plugins()

@@ -12,6 +12,7 @@ from .main_window import MainWindow
 
 
 def create_application(argv: Sequence[str] | None = None) -> QApplication:
+    """Create application."""
     existing = QApplication.instance()
     if isinstance(existing, QApplication):
         return existing
@@ -25,6 +26,7 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 
 
 def run_application(argv: Sequence[str] | None = None) -> int:
+    """Run application."""
     app = create_application(argv)
     window = MainWindow()
     # QObject parenting keeps the controller alive for the window lifetime.

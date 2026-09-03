@@ -33,6 +33,7 @@ class ReviewPanel(QWidget):
     rejectLineRequested = Signal(str)
 
     def __init__(self, parent=None) -> None:
+        """Initialize the ReviewPanel instance."""
         super().__init__(parent)
         self.project_label = QLabel("No project open", self)
         self.project_label.setWordWrap(True)
@@ -90,14 +91,17 @@ class ReviewPanel(QWidget):
         self.filter_combo.currentTextChanged.connect(self._rebuild_corrections)
 
     def set_project_summary(self, text: str) -> None:
+        """Set project summary."""
         self.project_label.setText(text)
 
     def set_validation(self, summary: str, messages: list[str] | tuple[str, ...] = ()) -> None:
+        """Set validation."""
         self.validation_label.setText(summary)
         self.validation_messages.clear()
         self.validation_messages.addItems(messages)
 
     def set_correction_progress(self, value: int | None, status: str = "") -> None:
+        """Set correction progress."""
         running = value is not None
         self.progress.setVisible(running)
         self.cancel_button.setVisible(running)
@@ -108,13 +112,16 @@ class ReviewPanel(QWidget):
             self.progress.setFormat(status or "%p%")
 
     def set_corrections(self, entries: Iterable[Mapping[str, object]]) -> None:
+        """Set corrections."""
         self._corrections = [dict(entry) for entry in entries]
         self._rebuild_corrections()
 
     def clear_corrections(self) -> None:
+        """Remove all correction cards and reset the review panel."""
         self.set_corrections(())
 
     def _rebuild_corrections(self, *_args: object) -> None:
+        """Rebuild correction cards from the current filtered entries."""
         while self.review_layout.count() > 1:
             item = self.review_layout.takeAt(0)
             if item is None:
@@ -135,6 +142,7 @@ class ReviewPanel(QWidget):
 
     @staticmethod
     def _included(entry: Mapping[str, object], filter_name: str) -> bool:
+        """Return whether an entry matches the active review filter."""
         if filter_name == "Automatically changed":
             return bool(entry.get("actionable"))
         if filter_name == "Rejected":
@@ -144,6 +152,7 @@ class ReviewPanel(QWidget):
         return True
 
     def _correction_card(self, entry: Mapping[str, object]) -> QFrame:
+        """Build one reviewer-facing correction card."""
         card = QFrame(self.review_content)
         card.setObjectName("correctionReviewCard")
         layout = QVBoxLayout(card)
@@ -222,6 +231,7 @@ class ReviewPanel(QWidget):
 
     @staticmethod
     def _review_diff_row(name: str, marker: str, content: QWidget) -> QFrame:
+        """Build the text-difference row for a correction card."""
         frame = QFrame()
         frame.setObjectName(name)
         gutter = QLabel(marker, frame)
@@ -237,6 +247,7 @@ class ReviewPanel(QWidget):
 
     @staticmethod
     def _rtl_text(text: str, parent: QWidget) -> QLabel:
+        """Create a right-to-left text label for Arabic content."""
         label = QLabel(text or "—", parent)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -246,6 +257,7 @@ class ReviewPanel(QWidget):
         return label
 
     def _style_card(self, card: QFrame, badge: QLabel, status: str) -> None:
+        """Apply theme-aware styling to a correction card."""
         dark = self.palette().color(QPalette.ColorRole.Base).lightness() < 128
         if dark:
             border, header, text = "#30363d", "#161b22", "#e6edf3"
@@ -295,6 +307,7 @@ class ReviewPanel(QWidget):
         )
 
     def event(self, event: QEvent) -> bool:
+        """Handle the Qt event."""
         result = super().event(event)
         if event.type() == QEvent.Type.PaletteChange and getattr(self, "_corrections", None):
             self._rebuild_corrections()

@@ -30,6 +30,7 @@ from .models import (
 
 
 def _line_state(line: CorrectionLine, *, deleted: bool = False) -> LineState:
+    """Create a reversible state snapshot for one correction line."""
     return LineState(
         line_id=line.line_id,
         text=line.text,
@@ -52,6 +53,7 @@ def _proposal(
     source_by_id: Mapping[str, CorrectionLine],
     settings: CorrectionSettings,
 ) -> LineCorrectionProposal:
+    """Build a reviewer-facing proposal for one alignment result."""
     member_ids = tuple(
         line_id
         for line in alignment.lines

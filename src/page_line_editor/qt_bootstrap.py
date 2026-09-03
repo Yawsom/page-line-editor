@@ -60,6 +60,7 @@ def prepare_qt_plugins() -> Path | None:
         cache.mkdir(parents=True, exist_ok=True)
 
         def ignore_stale(_directory: str, names: list[str]) -> set[str]:
+            """Exclude renamed plugin binaries left behind by a pip downgrade."""
             # A pip downgrade can leave renamed, incompatible plugin copies.
             return {name for name in names if name.endswith(" 2.dylib")}
 
